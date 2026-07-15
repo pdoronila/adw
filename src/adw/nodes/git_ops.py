@@ -10,11 +10,6 @@ class GitError(RuntimeError):
     pass
 
 
-# adw's own artifacts (.adw/runs, .adw/tickets) live inside the target repo;
-# they must never count as dirt or get swept into a ship commit.
-_EXCLUDE_ADW = ":(exclude).adw"
-
-
 def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
     if check and proc.returncode != 0:
@@ -26,8 +21,33 @@ def is_git_repo(repo: Path) -> bool:
     return _git(repo, "rev-parse", "--git-dir", check=False).returncode == 0
 
 
+def ensure_adw_ignored(repo: Path) -> None:
+    """Register .adw/ in the repo-local .git/info/exclude.
+
+    adw's own artifacts (.adw/runs, .adw/tickets) live inside the target repo;
+    this keeps them out of `status`/`diff`/`add` without touching the user's
+    tracked .gitignore. Idempotent; no-op outside a git repo.
+    """
+    proc = _git(repo, "rev-parse", "--git-dir", check=False)
+    if proc.returncode != 0:
+        return
+    git_dir = Path(proc.stdout.strip())
+    if not git_dir.is_absolute():
+        git_dir = repo / git_dir
+    info = git_dir / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    exclude = info / "exclude"
+    existing = exclude.read_text() if exclude.is_file() else ""
+    if ".adw/" in existing.split():
+        return
+    prefix = "" if not existing or existing.endswith("\n") else "\n"
+    with exclude.open("a") as handle:
+        handle.write(f"{prefix}.adw/\n")
+
+
 def ensure_clean(repo: Path) -> bool:
-    return not _git(repo, "status", "--porcelain", "--", ".", _EXCLUDE_ADW).stdout.strip()
+    # .adw is excluded via .git/info/exclude, so it never shows here.
+    return not _git(repo, "status", "--porcelain").stdout.strip()
 
 
 def current_branch(repo: Path) -> str:
@@ -48,22 +68,22 @@ def delete_branch(repo: Path, name: str) -> None:
 
 
 def diff_summary(repo: Path, base: str) -> str:
-    stat = _git(repo, "diff", "--stat", base, "--", ".", _EXCLUDE_ADW, check=False).stdout
-    status = _git(repo, "status", "--short", "--", ".", _EXCLUDE_ADW).stdout
+    stat = _git(repo, "diff", "--stat", base, check=False).stdout
+    status = _git(repo, "status", "--short").stdout
     return f"## git diff --stat vs {base}\n{stat}\n## git status --short\n{status}"
 
 
 def full_diff(repo: Path, base: str) -> str:
-    return _git(repo, "diff", base, "--", ".", _EXCLUDE_ADW, check=False).stdout
+    return _git(repo, "diff", base, check=False).stdout
 
 
 def stage_all(repo: Path) -> None:
-    """Stage everything (except .adw) so new files show up in diffs vs the base."""
-    _git(repo, "add", "-A", "--", ".", _EXCLUDE_ADW)
+    """Stage everything so new files show up in diffs vs the base (.adw is ignored)."""
+    _git(repo, "add", "-A")
 
 
 def commit_all(repo: Path, message: str) -> str:
-    _git(repo, "add", "-A", "--", ".", _EXCLUDE_ADW)
+    _git(repo, "add", "-A")
     _git(repo, "commit", "-m", message)
     return _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
 

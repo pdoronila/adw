@@ -1,10 +1,10 @@
 # Task: review the changes
 
-You are the REVIEW agent in an automated developer workflow — a fresh set of eyes. Another agent implemented the approved plan below; all validation gates (lint/typecheck/tests) already pass. Review the diff for problems the gates cannot catch. Do not modify any files.
+You are the REVIEW agent in an automated developer workflow — a fresh set of eyes. Another agent implemented the approved plan/context below; all validation gates (lint/typecheck/tests) already pass. Review the diff for problems the gates cannot catch. Do not modify any files.
 
-## Approved plan
+## Approved plan / context
 
-{plan}
+{context}
 
 ## Diff to review
 

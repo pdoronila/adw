@@ -43,11 +43,35 @@ Model strings are backend-native and passed through verbatim (`opus` for claude,
 
 ```bash
 adw doctor                              # check backends, config, gates
+adw workflows                           # list available workflows
 adw run feature "Add a --json flag to the export command"
 adw run feature "..." --dry-run         # show resolved roles/gates, run nothing
 adw run feature "..." -y                # unattended: skip both engineer gates
 adw status                              # list runs; adw status <run-id> for detail
 ```
+
+### Available workflows
+
+Every workflow is composed from the same reusable steps (`src/adw/workflows/steps.py`); they differ in which agents run and where the human gates sit. Assign model tiers per role in `adw.yaml` (e.g. a cheap workhorse for `chore`, a SOTA model for `plan`/`research`).
+
+| Workflow | Shape | For |
+|---|---|---|
+| `feature` | plan → **approve** → build → gate loop → review → **ship** | new functionality |
+| `bug` | diagnose → **approve** → fix + regression test → gate loop → review → **ship** | defects; ships a test that fails before, passes after |
+| `chore` | build → gate loop → **ship** (one workhorse agent, no plan/review) | small low-risk work (dep bumps, renames) |
+| `hotfix` | scout → **approve fix** → implement → gate loop → **ship ASAP** | production incidents; human signs off on the approach up front |
+| `cve` | research → **approve** → reproduce (failing test) → mitigate → gate loop → security review → **ship** | reproduce a vulnerability in your own repo, then build + regression-guard the protection |
+
+**Bold** = an engineer gate. Examples:
+
+```bash
+adw run chore  "Bump ruff to the latest 0.x and fix any new lint"
+adw run bug    "search() returns duplicates when the query has trailing whitespace"
+adw run hotfix "Checkout 500s: NPE in PaymentService.total() when cart is empty"
+adw run cve    "CVE-2024-XXXX: path traversal in read_document() — reproduce '../secret' escaping DOCS_ROOT, then confine reads to it"
+```
+
+The **cve** workflow is defensive: it reproduces the flaw as a security test *inside your own test suite* (the test fails against the vulnerable code, proving the hole), implements the protection so the test passes, and leaves that test behind as a permanent regression guard. Reproduction is confined to your repo — no external targeting.
 
 What `adw run feature` does:
 
@@ -85,8 +109,9 @@ Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move t
 
 ## Extending
 
-- New workflow (chore, bug, hotfix…): implement the `Workflow` protocol in `src/adw/workflows/`, register it in `WORKFLOWS`.
+- New workflow: compose one from the shared steps in `src/adw/workflows/steps.py` (`preflight`, `start_branch`, `agent_doc`, `approve_gate`, `build`, `resume_turn`, `gate_loop`, `review`, `final_gate`, `ship`) — each returns `RunOutcome | None`, where non-None short-circuits. See `feature.py`/`cve.py` for the pattern; register it in `WORKFLOWS`.
 - New backend: subclass `AgentAdapter` (`build_command` + `parse_output`), register in `ADAPTERS`, add a `BackendOpts` model.
+- New prompt: drop a `<name>.md` in `src/adw/prompts/` and render it with `prompts.render(name, **kwargs)`.
 
 ## Development
 

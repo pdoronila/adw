@@ -149,7 +149,7 @@ def test_plan_rejection_cleans_up(target_repo: Path, monkeypatch: pytest.MonkeyP
     }
     ctx = make_ctx(target_repo, make_config(), mocks)
     ctx.assume_yes = False
-    monkeypatch.setattr("adw.workflows.feature.human.approve_plan", lambda *a, **k: "reject")
+    monkeypatch.setattr("adw.human.approve_plan", lambda *a, **k: "reject")
     outcome = FeatureWorkflow().run(ctx)
 
     assert outcome.status == "rejected"
@@ -171,7 +171,7 @@ def test_final_rejection_keeps_branch(target_repo: Path, monkeypatch: pytest.Mon
     ctx = make_ctx(target_repo, make_config(), mocks)
     ctx.assume_yes = False
     ctx.auto_approve_plan = True
-    monkeypatch.setattr("adw.workflows.feature.human.final_review", lambda *a, **k: False)
+    monkeypatch.setattr("adw.human.final_review", lambda *a, **k: False)
     outcome = FeatureWorkflow().run(ctx)
 
     assert outcome.status == "rejected"
