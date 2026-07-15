@@ -1,0 +1,22 @@
+# adw operating on itself — the system that builds the system.
+version: 1
+
+gates:
+  lint:      {command: "uv run ruff check .", timeout: 120}
+  typecheck: {command: "uv run mypy", timeout: 300}
+  test:      {command: "uv run pytest -x -q", timeout: 900}
+
+agents:
+  default: {backend: claude-code, model: sonnet}
+  roles:
+    plan:   {backend: claude-code, model: opus}
+    build:  {backend: claude-code, model: sonnet}
+    review: {backend: claude-code, model: opus}
+
+workflow:
+  max_fix_iterations: 3
+  gate_order: [lint, typecheck, test]
+
+ship:
+  branch_prefix: "adw/"
+  create_pr: false

@@ -1,0 +1,208 @@
+"""Workflow logic tests: MockAdapters, real git, real (trivial) gates, no CLIs."""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from adw.adapters.base import AgentAdapter, AgentInvocation
+from adw.adapters.mock import MockAdapter, ScriptedTurn
+from adw.config import AdwConfig
+from adw.nodes.agent_node import AgentRunner
+from adw.state.run_state import RunState, create_run_dir, save_state
+from adw.workflows.base import WorkflowContext
+from adw.workflows.feature import FeatureWorkflow
+
+
+def make_config(max_fixes: int = 3) -> AdwConfig:
+    return AdwConfig.model_validate(
+        {
+            "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
+            "workflow": {"max_fix_iterations": max_fixes, "gate_order": ["marker"]},
+        }
+    )
+
+
+def make_ctx(
+    repo: Path,
+    config: AdwConfig,
+    mocks: dict[str, AgentAdapter],
+    **flags: bool,
+) -> WorkflowContext:
+    run_id = "test-run"
+    run_dir = create_run_dir(repo, run_id)
+    state = RunState(run_id=run_id, workflow="feature", task="add a marker", repo=str(repo))
+    save_state(state, run_dir)
+
+    def factory(role: str, backend: str) -> AgentAdapter:
+        return mocks[role]
+
+    return WorkflowContext(
+        repo_dir=repo,
+        run_dir=run_dir,
+        config=config,
+        state=state,
+        task="add a marker",
+        agents=AgentRunner(config, run_dir, adapter_factory=factory),
+        assume_yes=True,
+        **flags,
+    )
+
+
+def touch_marker(repo: Path):
+    def _do(inv: AgentInvocation) -> None:
+        (repo / "marker.txt").write_text("fixed\n")
+
+    return _do
+
+
+def edit_app(repo: Path):
+    def _do(inv: AgentInvocation) -> None:
+        (repo / "app.py").write_text("def hello():\n    return 'hello, adw'\n")
+
+    return _do
+
+
+def test_happy_path_with_one_fix_round(target_repo: Path) -> None:
+    """Build leaves gates failing; fix (same session) repairs; run ships."""
+    build_mock = MockAdapter(
+        [
+            ScriptedTurn(output="built", session_id="build-s1", on_invoke=edit_app(target_repo)),
+            ScriptedTurn(
+                output="fixed", session_id="build-s1", on_invoke=touch_marker(target_repo)
+            ),
+        ]
+    )
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="# Plan\nAdd marker.", session_id="plan-s")]),
+        "build": build_mock,
+        "review": MockAdapter([ScriptedTurn(output="VERDICT: ship", session_id="review-s")]),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"
+    # fix resumed the SAME build session with the gate failure in the prompt
+    assert len(build_mock.invocations) == 2
+    fix_inv = build_mock.invocations[1]
+    assert fix_inv.session_id == "build-s1"
+    assert "Gate `marker` failed" in fix_inv.prompt
+    assert "test -f marker.txt" in fix_inv.prompt
+    # plan and review ran read-only; review got a FRESH session
+    assert mocks["plan"].invocations[0].read_only  # type: ignore[attr-defined]
+    review_inv = mocks["review"].invocations[0]  # type: ignore[attr-defined]
+    assert review_inv.read_only and review_inv.session_id is None
+    # review saw the diff
+    assert "hello, adw" in review_inv.prompt
+    # a commit landed on the work branch and artifacts exist
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=target_repo, capture_output=True, text=True
+    ).stdout.strip()
+    assert branch == "adw/test-run"
+    log = subprocess.run(
+        ["git", "log", "--oneline"], cwd=target_repo, capture_output=True, text=True
+    ).stdout
+    assert "add a marker" in log
+    assert (ctx.run_dir / "plan.md").read_text().startswith("# Plan")
+    assert (ctx.run_dir / "review.md").read_text().startswith("VERDICT")
+    assert ctx.state.status == "shipped"
+    # .adw artifacts were not swept into the ship commit
+    committed = subprocess.run(
+        ["git", "ls-files"], cwd=target_repo, capture_output=True, text=True
+    ).stdout
+    assert ".adw" not in committed
+
+
+def test_gates_exhausted_fails(target_repo: Path) -> None:
+    """If fixes never repair the gates, the run fails after max_fix_iterations."""
+    build_mock = MockAdapter(
+        [
+            ScriptedTurn(output="built", session_id="s", on_invoke=edit_app(target_repo)),
+            ScriptedTurn(output="fix 1", session_id="s"),
+            ScriptedTurn(output="fix 2", session_id="s"),
+        ]
+    )
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": MockAdapter(),
+    }
+    ctx = make_ctx(target_repo, make_config(max_fixes=2), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "failed"
+    assert "fix attempts" in outcome.reason
+    assert len(build_mock.invocations) == 3  # 1 build + 2 fixes, then stop
+    assert ctx.state.status == "failed"
+    assert ctx.state.fix_attempts == 2
+    # review never ran
+    assert mocks["review"].invocations == []  # type: ignore[attr-defined]
+
+
+def test_plan_rejection_cleans_up(target_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan text")]),
+        "build": MockAdapter(),
+        "review": MockAdapter(),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    ctx.assume_yes = False
+    monkeypatch.setattr("adw.workflows.feature.human.approve_plan", lambda *a, **k: "reject")
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "rejected"
+    assert mocks["build"].invocations == []  # type: ignore[attr-defined]
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=target_repo, capture_output=True, text=True
+    ).stdout.strip()
+    assert branch == "main"  # work branch deleted, back on base
+
+
+def test_final_rejection_keeps_branch(target_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": MockAdapter(
+            [ScriptedTurn(output="built", session_id="s", on_invoke=touch_marker(target_repo))]
+        ),
+        "review": MockAdapter([ScriptedTurn(output="VERDICT: concerns")]),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    ctx.assume_yes = False
+    ctx.auto_approve_plan = True
+    monkeypatch.setattr("adw.workflows.feature.human.final_review", lambda *a, **k: False)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "rejected"
+    assert any("adw/test-run" in h for h in outcome.hints)
+    log = subprocess.run(
+        ["git", "log", "--oneline"], cwd=target_repo, capture_output=True, text=True
+    ).stdout
+    assert "add a marker" not in log  # nothing committed
+
+
+def test_preflight_dirty_tree_fails_fast(target_repo: Path) -> None:
+    (target_repo / "app.py").write_text("dirty\n")
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter(),
+        "build": MockAdapter(),
+        "review": MockAdapter(),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+    assert outcome.status == "failed"
+    assert "not clean" in outcome.reason
+    assert mocks["plan"].invocations == []  # type: ignore[attr-defined]
+
+
+def test_plan_agent_failure_fails_run(target_repo: Path) -> None:
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(ok=False, output="")]),
+        "build": MockAdapter(),
+        "review": MockAdapter(),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+    assert outcome.status == "failed"
+    assert "plan agent failed" in outcome.reason
