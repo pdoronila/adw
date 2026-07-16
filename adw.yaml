@@ -17,6 +17,10 @@ workflow:
   max_fix_iterations: 3
   gate_order: [lint, typecheck, test]
 
+# Each run in its own git worktree — required for `queue process --parallel`.
+isolation:
+  type: worktree
+
 ship:
   branch_prefix: "adw/"
   create_pr: false
