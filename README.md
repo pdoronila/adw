@@ -40,7 +40,7 @@ Cutting a release so installs can pin a version: `git tag v0.1.0 && git push ori
 
 ### Runtime prerequisites
 
-The Python deps (typer, pydantic, pyyaml) install automatically. Separately, each user needs on their PATH: `git`, at least one agent CLI (`claude`, `codex`, or `opencode` — whichever your `adw.yaml` roles use), and `gh` only if `ship.create_pr` is on. Run `adw doctor` in a target repo to check all of this.
+The Python deps (typer, pydantic, pyyaml) install automatically. Separately, each user needs on their PATH: `git`, at least one agent CLI (`claude`, `codex`, or `opencode` — whichever your `adw.yaml` roles use), and `gh` only if `ship.create_pr` is on (its absence — or a missing remote — no longer fails the run, it just skips the PR). Run `adw doctor` in a target repo to check all of this.
 
 ### Distributing as versioned wheels instead of git installs
 
@@ -275,7 +275,7 @@ adw queue process --all --parallel 3 -y
 
 **Sandboxed.** Set `isolation: {type: container}` and each run's agent + gates execute inside an Apple container (VM-level isolation, nothing touches your host) — composes with worktrees, so `--parallel` still works. Use it for untrusted changes or large fan-outs.
 
-**It never touches `main`.** Every run commits on `adw/<run-id>` and stops. Review the branch (`git diff main..adw/<id>`) or, with `ship.create_pr: true` (+ a GitHub remote), let each run open its own PR. Merge only on approval; `git branch -D adw/<id>` to discard.
+**It never touches `main`.** Every run commits on `adw/<run-id>` and stops. Review the branch (`git diff main..adw/<id>`) or, with `ship.create_pr: true`, let each run push its branch and open its own PR — if there's no git remote (or `gh` isn't installed, or the push/PR call fails) it degrades gracefully: the run still ships, and the branch is left for you to push/PR manually. Merge only on approval; `git branch -D adw/<id>` to discard.
 
 **Editing its own source is safe.** The running `adw` process loads its code once at start, so a run that rewrites `steps.py` won't destabilize itself mid-flight — the change applies on the next invocation.
 

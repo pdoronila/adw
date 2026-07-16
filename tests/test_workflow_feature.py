@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -10,8 +11,10 @@ import pytest
 from adw.adapters.base import AgentAdapter, AgentInvocation
 from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.config import AdwConfig
+from adw.nodes import git_ops
 from adw.nodes.agent_node import AgentRunner
 from adw.state.run_state import RunState, create_run_dir, save_state
+from adw.workflows import steps
 from adw.workflows.base import WorkflowContext
 from adw.workflows.feature import FeatureWorkflow
 
@@ -321,3 +324,58 @@ def test_review_unparseable_verdict_ships(target_repo: Path) -> None:
     assert outcome.status == "shipped"
     assert len(build_mock.invocations) == 1
     assert len(review_mock.invocations) == 1
+
+
+def make_ship_ctx(repo: Path, config: AdwConfig) -> WorkflowContext:
+    """A ctx wired for a direct steps.ship() call, with a real staged change to commit."""
+    ctx = make_ctx(repo, config, {})
+    # ship() reads state.work_branch/base_branch for its detail string; mirror a real run.
+    ctx.state.base_branch = "main"
+    ctx.state.work_branch = "main"
+    (repo / "app.py").write_text("def hello():\n    return 'shipped'\n")
+    return ctx
+
+
+def test_ship_create_pr_no_remote_still_ships(target_repo: Path) -> None:
+    """create_pr on + no git remote: PR is skipped with a warning, the run still ships."""
+    config = AdwConfig.model_validate(
+        {
+            "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
+            "workflow": {"gate_order": ["marker"]},
+            "ship": {"create_pr": True},
+        }
+    )
+    ctx = make_ship_ctx(target_repo, config)
+
+    outcome = steps.ship(ctx, title="test")
+
+    assert outcome.status == "shipped"
+    assert "branch" in outcome.reason
+    assert ctx.state.work_branch in outcome.reason
+    assert ctx.state.status == "shipped"
+
+
+def test_ship_create_pr_false_unchanged(
+    target_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """create_pr off (the default): no push/PR attempted, detail is the plain commit line."""
+
+    def _boom(*a: object, **k: object) -> None:
+        raise AssertionError("PR code path must not run when create_pr is False")
+
+    monkeypatch.setattr(git_ops, "push_branch", _boom)
+    monkeypatch.setattr(git_ops, "create_pr", _boom)
+
+    ctx = make_ship_ctx(target_repo, make_config())
+    outcome = steps.ship(ctx, title="test")
+
+    assert outcome.status == "shipped"
+    assert "PR" not in outcome.reason
+    assert re.fullmatch(rf"commit \w+ on {ctx.state.work_branch}", outcome.reason)
+
+
+def test_has_remote(target_repo: Path) -> None:
+    """has_remote reflects the repo's configured remotes."""
+    assert git_ops.has_remote(target_repo) is False
+    git_ops._git(target_repo, "remote", "add", "origin", "https://example.com/x.git")
+    assert git_ops.has_remote(target_repo) is True

@@ -9,6 +9,7 @@ owns the two human gates.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import typer
@@ -415,12 +416,37 @@ def ship(ctx: WorkflowContext, *, title: str | None = None) -> RunOutcome:
     state.start_step("ship")
     commit = git_ops.commit_all(repo, f"{title or ctx.task}\n\nadw-run: {state.run_id}")
     detail = f"commit {commit} on {state.work_branch}"
+
     if config.ship.create_pr:
-        summary = git_ops.diff_summary(repo, state.base_branch)
-        pr_url = git_ops.create_pr(
-            repo, title or ctx.task, f"Automated by adw run {state.run_id}\n\n{summary}"
-        )
-        detail += f"; PR {pr_url}"
+        if not git_ops.has_remote(repo):
+            detail += f"; PR skipped (no git remote configured), branch {state.work_branch}"
+            typer.secho(
+                "ship: create_pr is on but the repo has no git remote; skipping PR, "
+                f"branch {state.work_branch} kept",
+                fg="yellow",
+            )
+        elif not shutil.which("gh"):
+            detail += f"; PR skipped (gh CLI not found), branch {state.work_branch}"
+            typer.secho(
+                "ship: create_pr is on but `gh` is not installed; skipping PR, "
+                f"branch {state.work_branch} kept",
+                fg="yellow",
+            )
+        else:
+            try:
+                git_ops.push_branch(repo, state.work_branch)
+                summary = git_ops.diff_summary(repo, state.base_branch)
+                pr_url = git_ops.create_pr(
+                    repo, title or ctx.task, f"Automated by adw run {state.run_id}\n\n{summary}"
+                )
+                detail += f"; PR {pr_url}"
+            except git_ops.GitError as exc:
+                detail += f"; PR skipped ({exc}), branch {state.work_branch}"
+                typer.secho(
+                    f"ship: PR creation failed ({exc}); branch {state.work_branch} kept",
+                    fg="yellow",
+                )
+
     state.end_step("ship", "ok", detail)
     state.status = "shipped"
     state.outcome_detail = detail

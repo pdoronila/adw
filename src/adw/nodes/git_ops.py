@@ -98,6 +98,14 @@ def remove_worktree(repo: Path, path: Path) -> None:
     _git(repo, "worktree", "remove", "--force", str(path), check=False)
 
 
+def has_remote(repo: Path) -> bool:
+    return bool(_git(repo, "remote", check=False).stdout.strip())
+
+
+def push_branch(repo: Path, branch: str) -> None:
+    _git(repo, "push", "-u", "origin", branch)
+
+
 def create_pr(repo: Path, title: str, body: str) -> str:
     proc = subprocess.run(
         ["gh", "pr", "create", "--title", title, "--body", body],
