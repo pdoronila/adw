@@ -23,4 +23,5 @@ isolation:
 
 ship:
   branch_prefix: "adw/"
-  create_pr: false
+  create_pr: true   # requires a GitHub remote + gh; until then, runs commit to
+                    # the branch but error at the PR step
