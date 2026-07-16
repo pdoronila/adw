@@ -127,3 +127,125 @@ def test_dry_run_touches_nothing(e2e_repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "plan" in result.output and "marker" in result.output
     assert not (e2e_repo / ".adw" / "runs").exists()
+
+
+def test_dry_run_model_override(e2e_repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["run", "feature", "anything", "--repo", str(e2e_repo), "--model", "opus", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "model=opus" in result.output
+    assert "model: opus" in result.output  # reflected in the per-role listing
+    assert not (e2e_repo / ".adw" / "runs").exists()
+
+
+def test_dry_run_backend_override(e2e_repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["run", "feature", "anything", "--repo", str(e2e_repo), "--backend", "codex", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "backend=codex" in result.output
+    assert "-> codex" in result.output
+    assert not (e2e_repo / ".adw" / "runs").exists()
+
+
+def test_dry_run_backend_override_rejects_unknown(e2e_repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["run", "feature", "anything", "--repo", str(e2e_repo), "--backend", "nope", "--dry-run"],
+    )
+    assert result.exit_code == 2
+    assert "unknown backend" in result.output
+
+
+def test_dry_run_isolation_override(e2e_repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "feature",
+            "anything",
+            "--repo",
+            str(e2e_repo),
+            "--isolation",
+            "worktree",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "isolation=worktree" in result.output
+    assert "isolation: worktree" in result.output
+    assert not (e2e_repo / ".adw" / "runs").exists()
+
+
+def test_dry_run_isolation_override_rejects_unknown(e2e_repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "feature",
+            "anything",
+            "--repo",
+            str(e2e_repo),
+            "--isolation",
+            "bogus",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "unknown isolation" in result.output
+
+
+def test_dry_run_model_override_applies_to_pinned_roles(e2e_repo: Path) -> None:
+    fake = FIXTURES / "fake_agent.py"
+    (e2e_repo / "adw.yaml").write_text(
+        f"""
+gates:
+  marker: {{command: "test -f marker.txt", timeout: 10}}
+agents:
+  default: {{backend: claude-code, model: sonnet}}
+  roles:
+    plan: {{backend: claude-code, model: opus-pinned}}
+workflow:
+  max_fix_iterations: 2
+  gate_order: [marker]
+backends:
+  claude-code: {{binary: "{fake}"}}
+"""
+    )
+    result = runner.invoke(
+        app,
+        ["run", "feature", "anything", "--repo", str(e2e_repo), "--model", "haiku", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "opus-pinned" not in result.output  # the pin is overridden…
+    assert "backend default" not in result.output  # …and no role falls through to the CLI default
+    assert result.output.count("model: haiku") == 4  # every role (incl. pinned plan) uses it
+
+
+def test_dry_run_backend_override_applies_to_pinned_roles(e2e_repo: Path) -> None:
+    fake = FIXTURES / "fake_agent.py"
+    (e2e_repo / "adw.yaml").write_text(
+        f"""
+gates:
+  marker: {{command: "test -f marker.txt", timeout: 10}}
+agents:
+  default: {{backend: claude-code, model: sonnet}}
+  roles:
+    plan: {{backend: opencode, model: sonnet}}
+workflow:
+  max_fix_iterations: 2
+  gate_order: [marker]
+backends:
+  claude-code: {{binary: "{fake}"}}
+"""
+    )
+    result = runner.invoke(
+        app,
+        ["run", "feature", "anything", "--repo", str(e2e_repo), "--backend", "codex", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "opencode" not in result.output  # the pinned backend is overridden…
+    assert result.output.count("-> codex") == 4  # …every role uses the override

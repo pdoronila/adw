@@ -110,12 +110,15 @@ adw workflows                           # list available workflows
 adw run feature "Add a --json flag to the export command"
 adw run feature "..." --dry-run         # show resolved roles/gates, run nothing
 adw run feature "..." -y                # unattended: skip both engineer gates
+adw run feature "..." --model opus              # override the model for every role, this run only
+adw run feature "..." --backend codex            # override the backend for every role, this run only
+adw run feature "..." --isolation worktree       # override isolation.type for this run
 adw status                              # list runs; adw status <run-id> for detail
 ```
 
 ### Available workflows
 
-Every workflow is composed from the same reusable steps (`src/adw/workflows/steps.py`); they differ in which agents run and where the human gates sit. Assign model tiers per role in `adw.yaml` (e.g. a cheap workhorse for `chore`, a SOTA model for `plan`/`research`).
+Every workflow is composed from the same reusable steps (`src/adw/workflows/steps.py`); they differ in which agents run and where the human gates sit. Assign model tiers per role in `adw.yaml` (e.g. a cheap workhorse for `chore`, a SOTA model for `plan`/`research`). `--model`/`--backend` on `adw run` override this uniformly for a single run.
 
 | Workflow | Shape | For |
 |---|---|---|

@@ -118,14 +118,39 @@ def run(
         1, help="Run N isolated candidates concurrently; first to pass gates wins"
     ),
     max_iterations: int | None = typer.Option(None, help="Override workflow.max_fix_iterations"),
+    model: str | None = typer.Option(None, help="Override the model for all agent roles"),
+    backend: str | None = typer.Option(None, help="Override the backend for all agent roles"),
+    isolation: str | None = typer.Option(
+        None, help="Override isolation.type: local|worktree|container"
+    ),
     dry_run: bool = typer.Option(False, help="Print the resolved plan of execution and exit"),
 ) -> None:
     """Run one AI developer workflow end to end."""
     config = _load(repo)
     if max_iterations is not None:
         config.workflow.max_fix_iterations = max_iterations
+    if model is not None:
+        config.agents.default.model = model
+        for role_agent in config.agents.roles.values():
+            role_agent.model = model  # pinned roles get the override, not the backend default
+    if backend is not None:
+        if backend not in ADAPTERS:
+            valid = ", ".join(sorted(ADAPTERS))
+            typer.secho(f"unknown backend {backend!r}; valid backends: {valid}", fg="red")
+            raise typer.Exit(2)
+        config.agents.default.backend = backend
+        for role_agent in config.agents.roles.values():
+            role_agent.backend = backend  # override every role, including pinned ones
+    if isolation is not None:
+        valid_isolation = ("local", "worktree", "container")
+        if isolation not in valid_isolation:
+            typer.secho(
+                f"unknown isolation {isolation!r}; valid: {', '.join(valid_isolation)}", fg="red"
+            )
+            raise typer.Exit(2)
+        config.isolation.type = isolation  # type: ignore[assignment]
     if dry_run:
-        _print_dry_run(workflow, task, repo, config)
+        _print_dry_run(workflow, task, repo, config, model, backend, isolation)
         return
     if race > 1:
         winner = _race(workflow, task, repo, config, race)
@@ -181,11 +206,26 @@ def _race(
     return winner
 
 
-def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> None:
+def _print_dry_run(
+    workflow: str,
+    task: str,
+    repo: Path,
+    config: AdwConfig,
+    model: str | None = None,
+    backend: str | None = None,
+    isolation: str | None = None,
+) -> None:
     get_workflow(workflow)  # validate name
     typer.secho(f"workflow: {workflow}", bold=True)
     typer.echo(f"task: {task}")
     typer.echo(f"repo: {repo}")
+    overrides = [
+        f"{k}={v}"
+        for k, v in (("model", model), ("backend", backend), ("isolation", isolation))
+        if v is not None
+    ]
+    if overrides:
+        typer.echo(f"overrides: {', '.join(overrides)}")
     typer.echo("agent roles:")
     for role in ("scout", "plan", "build", "review"):
         ra = config.resolve_role(role)
