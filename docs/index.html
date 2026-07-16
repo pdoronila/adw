@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>adw — How It Works</title>
+<meta name="description" content="adw composes engineers, agents, and deterministic code into AI developer workflows: the pipeline, the architecture, the five workflows, and the software factory around them.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%99%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --ground: #f4f6f8; --surface: #ffffff; --surface-2: #eceff3; --ink: #141b25;
+    --muted: #5c6775; --hair: #dde2e9; --code: #2f66e0; --agent: #8250e6;
+    --human: #c67d18; --pass: #1c8f5a; --fail: #d5453b; --code-tint: #e7eefc;
+    --agent-tint: #efe8fc; --human-tint: #f9f0dd; --pass-tint: #e0f3ea;
+    --fail-tint: #fbebe9; --output-tint: #e9edf2;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0a0d12; --surface: #131a23; --surface-2: #1a232e; --ink: #e8eef5;
+      --muted: #8b98a8; --hair: #232d3a; --code: #5f95ff; --agent: #a986ff;
+      --human: #e4a53f; --pass: #34b877; --fail: #ec6259; --code-tint: #14243f;
+      --agent-tint: #221b3b; --human-tint: #2c2413; --pass-tint: #0f2a1e;
+      --fail-tint: #2d1615; --output-tint: #1a232e;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f4f6f8; --surface: #ffffff; --surface-2: #eceff3; --ink: #141b25;
+    --muted: #5c6775; --hair: #dde2e9; --code: #2f66e0; --agent: #8250e6;
+    --human: #c67d18; --pass: #1c8f5a; --fail: #d5453b; --code-tint: #e7eefc;
+    --agent-tint: #efe8fc; --human-tint: #f9f0dd; --pass-tint: #e0f3ea;
+    --fail-tint: #fbebe9; --output-tint: #e9edf2;
+  }
+  :root[data-theme="dark"] {
+    --ground: #0a0d12; --surface: #131a23; --surface-2: #1a232e; --ink: #e8eef5;
+    --muted: #8b98a8; --hair: #232d3a; --code: #5f95ff; --agent: #a986ff;
+    --human: #e4a53f; --pass: #34b877; --fail: #ec6259; --code-tint: #14243f;
+    --agent-tint: #221b3b; --human-tint: #2c2413; --pass-tint: #0f2a1e;
+    --fail-tint: #2d1615; --output-tint: #1a232e;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: clamp(28px, 5vw, 68px) clamp(18px, 4vw, 44px) 72px; }
+
+  header { border-bottom: 1px solid var(--hair); padding-bottom: 30px; margin-bottom: 40px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--agent); margin: 0 0 14px;
+  }
+  h1 {
+    font-family: var(--mono); font-weight: 600; font-size: clamp(30px, 6vw, 48px);
+    letter-spacing: -0.02em; margin: 0; line-height: 1.02;
+  }
+  h1 .dim { color: var(--muted); }
+  .lede {
+    font-size: clamp(15px, 2vw, 17.5px); color: var(--muted); max-width: 64ch;
+    margin: 16px 0 0; text-wrap: pretty;
+  }
+
+  section { margin-top: 56px; }
+  h2 {
+    font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--ink); margin: 0 0 6px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2 .n { color: var(--muted); font-weight: 500; }
+  .sub { color: var(--muted); font-size: 14.5px; max-width: 68ch; margin: 0 0 24px; text-wrap: pretty; }
+
+  .actors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .actor {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 16px 16px 18px; border-top: 3px solid var(--ac);
+  }
+  .actor.code { --ac: var(--code); }
+  .actor.agent { --ac: var(--agent); }
+  .actor.human { --ac: var(--human); }
+  .actor .role { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ac); margin: 0 0 6px; }
+  .actor .name { font-size: 16px; font-weight: 650; margin: 0 0 6px; }
+  .actor p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .actor .tag { font-family: var(--mono); font-size: 11px; color: var(--muted); display: block; margin-top: 10px; }
+
+  .diagram-scroll { overflow-x: auto; padding: 4px 0 8px; }
+  svg.pipeline { display: block; margin: 0 auto; width: 100%; max-width: 700px; min-width: 560px; height: auto; }
+  .node-title { font-family: var(--mono); font-size: 15px; font-weight: 600; fill: var(--ink); }
+  .node-sub { font-family: var(--sans); font-size: 11.5px; fill: var(--muted); }
+  .node-kind { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .ord { font-family: var(--mono); font-size: 12px; fill: var(--muted); }
+  .loop-label { font-family: var(--mono); font-size: 11px; }
+  .flow-label { font-family: var(--mono); font-size: 11px; }
+
+  .arch { display: flex; flex-direction: column; gap: 0; position: relative; }
+  .arow {
+    display: grid; grid-template-columns: 92px 1fr; gap: 16px; align-items: stretch;
+    position: relative; padding-bottom: 18px;
+  }
+  .arow:last-child { padding-bottom: 0; }
+  .arow::before {
+    content: ""; position: absolute; left: 45px; top: 8px; bottom: -10px; width: 2px; background: var(--hair);
+  }
+  .arow:last-child::before { display: none; }
+  .lane-tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    align-self: start; padding-top: 15px; text-align: right; color: var(--lc, var(--muted));
+  }
+  .acard {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 11px;
+    padding: 13px 16px; border-left: 3px solid var(--lc, var(--hair)); position: relative; z-index: 1;
+  }
+  .acard.code { --lc: var(--code); }
+  .acard.agent { --lc: var(--agent); }
+  .acard.human { --lc: var(--human); }
+  .acard.output { --lc: var(--pass); }
+  .acard h3 { margin: 0 0 3px; font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; }
+  .acard h3 code, .acard .path { font-family: var(--mono); font-weight: 600; font-size: 13px; color: var(--lc); }
+  .acard p { margin: 0; font-size: 13px; color: var(--muted); }
+  .acard p code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  .handoff { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 7px; display: block; }
+
+  .matrix { display: flex; flex-direction: column; gap: 14px; }
+  .flow { display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: center; }
+  .flow-name { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px; padding: 4px 9px; border-radius: 6px;
+    border: 1px solid var(--cc, var(--hair)); color: var(--cc, var(--ink));
+    background: var(--ct, var(--surface)); white-space: nowrap;
+  }
+  .chip.code { --cc: var(--code); --ct: var(--code-tint); }
+  .chip.agent { --cc: var(--agent); --ct: var(--agent-tint); }
+  .chip.human { --cc: var(--human); --ct: var(--human-tint); }
+  .chip.loop { --cc: var(--fail); --ct: var(--fail-tint); }
+  .chip.ship { --cc: var(--pass); --ct: var(--pass-tint); }
+  .arrow-sep { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+  .caps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .cap {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 16px 18px 18px; border-top: 3px solid var(--ac, var(--hair));
+  }
+  .cap.code { --ac: var(--code); } .cap.agent { --ac: var(--agent); }
+  .cap.human { --ac: var(--human); } .cap.pass { --ac: var(--pass); }
+  .cap .k { font-family: var(--mono); font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ac); margin: 0 0 6px; }
+  .cap h3 { margin: 0 0 6px; font-size: 16px; font-weight: 650; }
+  .cap p { margin: 0 0 10px; font-size: 13.5px; color: var(--muted); }
+  .cap .cmd {
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: var(--surface-2); border: 1px solid var(--hair); border-radius: 7px;
+    padding: 7px 10px; display: block; overflow-x: auto; white-space: pre;
+  }
+
+  .note {
+    margin-top: 26px; font-size: 13.5px; color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--hair); border-radius: 10px; padding: 14px 16px;
+  }
+  .note b { color: var(--ink); font-weight: 650; }
+  .note code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+
+  footer { margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
+  footer a { color: var(--code); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 620px) {
+    .actors, .caps { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; gap: 6px; }
+    .arow { grid-template-columns: 60px 1fr; }
+    .arow::before { left: 29px; }
+    .lane-tag { padding-top: 14px; }
+  }
+
+  .fade { opacity: 0; transform: translateY(8px); animation: rise 0.5s ease forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .fade { animation: none; opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">AI Developer Workflows · the agentic layer</p>
+    <h1>adw <span class="dim">/ how it works</span></h1>
+    <p class="lede">
+      adw composes three actors — <strong>you</strong>, <strong>agents</strong>, and <strong>deterministic code</strong> —
+      into repeatable developer workflows. Code owns the orchestration; agents do the fuzzy work behind one
+      interchangeable interface; you show up only at the two ends. One machine drives five workflows, a factory
+      router, parallel runs, and container sandboxes.
+    </p>
+  </header>
+
+  <section>
+    <h2>The three actors</h2>
+    <p class="sub">Every node in a workflow is one of these. The color code carries through every diagram below.</p>
+    <div class="actors">
+      <div class="actor code">
+        <p class="role">Code</p>
+        <p class="name">Deterministic &amp; free</p>
+        <p>Orchestration, validation gates (lint · typecheck · test), and git. Fast, repeatable, zero tokens — the load-bearing layer.</p>
+        <span class="tag">run_gates() · git_ops · steps.py</span>
+      </div>
+      <div class="actor agent">
+        <p class="role">Agents</p>
+        <p class="name">Fuzzy work</p>
+        <p>Scout, plan, build, fix, review — driven headlessly. Claude Code, Codex, or opencode, assignable per role and swappable.</p>
+        <span class="tag">AgentRunner → Adapter → CLI</span>
+      </div>
+      <div class="actor human">
+        <p class="role">You</p>
+        <p class="name">The two ends</p>
+        <p>Prompt/approve at the start and review before ship. Everything between runs without you.</p>
+        <span class="tag">plan approval · final review</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span>The workflow</span> <span class="n">— feature, the canonical run</span></h2>
+    <p class="sub">
+      A run is an explicit pipeline of typed nodes. Validation failures route back into the <em>same</em> build
+      session so the agent keeps its context, looping until the gates pass or the fix budget runs out.
+    </p>
+    <div class="diagram-scroll fade">
+      <svg class="pipeline" viewBox="0 0 700 880" role="img"
+           aria-label="Vertical pipeline: task, preflight, branch, scout, plan, approve plan, build, gate loop, review, final review, ship, shipped. Gate-loop failures loop back into the build session.">
+        <defs>
+          <marker id="a-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
+          </marker>
+          <marker id="a-pass" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--pass)"/>
+          </marker>
+          <marker id="a-fail" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--fail)"/>
+          </marker>
+        </defs>
+
+        <g fill="none">
+          <line x1="270" y1="70"  x2="270" y2="88"  stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="142" x2="270" y2="160" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="214" x2="270" y2="232" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="286" x2="270" y2="304" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="358" x2="270" y2="376" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="430" x2="270" y2="448" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="502" x2="270" y2="520" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="574" x2="270" y2="592" stroke="var(--pass)"  stroke-width="2" marker-end="url(#a-pass)"/>
+          <line x1="270" y1="646" x2="270" y2="664" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="718" x2="270" y2="736" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <line x1="270" y1="790" x2="270" y2="808" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
+          <path d="M400,547 H560 Q574,547 574,533 V489 Q574,475 560,475 H400"
+                stroke="var(--fail)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a-fail)"/>
+        </g>
+
+        <text class="loop-label" x="588" y="505" fill="var(--fail)">fail →</text>
+        <text class="loop-label" x="588" y="521" fill="var(--fail)">resume S</text>
+        <text class="flow-label" x="284" y="588" fill="var(--pass)">all pass ↓</text>
+
+        <!-- 1 Task -->
+        <g>
+          <text class="ord" x="122" y="48" text-anchor="end">1</text>
+          <rect x="140" y="16" width="260" height="54" rx="16" fill="var(--human-tint)" stroke="var(--human)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="39">Task</text>
+          <text class="node-sub" x="158" y="56">plain-language prompt or ticket</text>
+          <text class="node-kind" x="382" y="37" text-anchor="end" fill="var(--human)">you</text>
+        </g>
+        <!-- 2 Preflight -->
+        <g>
+          <text class="ord" x="122" y="120" text-anchor="end">2</text>
+          <rect x="140" y="88" width="260" height="54" rx="9" fill="var(--code-tint)" stroke="var(--code)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="111">Preflight</text>
+          <text class="node-sub" x="158" y="128">clean git tree · gates configured</text>
+          <text class="node-kind" x="382" y="109" text-anchor="end" fill="var(--code)">code</text>
+        </g>
+        <!-- 3 Branch -->
+        <g>
+          <text class="ord" x="122" y="192" text-anchor="end">3</text>
+          <rect x="140" y="160" width="260" height="54" rx="9" fill="var(--code-tint)" stroke="var(--code)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="183">Branch</text>
+          <text class="node-sub" x="158" y="200">adw/&lt;run-id&gt; (or a worktree)</text>
+          <text class="node-kind" x="382" y="181" text-anchor="end" fill="var(--code)">code</text>
+        </g>
+        <!-- 4 Scout -->
+        <g>
+          <text class="ord" x="122" y="264" text-anchor="end">4</text>
+          <rect x="140" y="232" width="260" height="54" rx="9" fill="var(--agent-tint)" stroke="var(--agent)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="255">Scout</text>
+          <text class="node-sub" x="158" y="272">surveys the codebase → scout.md</text>
+          <text class="node-kind" x="382" y="253" text-anchor="end" fill="var(--agent)">agent · read-only</text>
+        </g>
+        <!-- 5 Plan -->
+        <g>
+          <text class="ord" x="122" y="336" text-anchor="end">5</text>
+          <rect x="140" y="304" width="260" height="54" rx="9" fill="var(--agent-tint)" stroke="var(--agent)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="327">Plan</text>
+          <text class="node-sub" x="158" y="344">builds on scout → plan.md</text>
+          <text class="node-kind" x="382" y="325" text-anchor="end" fill="var(--agent)">agent · read-only</text>
+        </g>
+        <!-- 6 Approve -->
+        <g>
+          <text class="ord" x="122" y="408" text-anchor="end">6</text>
+          <rect x="140" y="376" width="260" height="54" rx="9" fill="var(--human-tint)" stroke="var(--human)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="399">Approve plan</text>
+          <text class="node-sub" x="158" y="416">approve · edit · reject</text>
+          <text class="node-kind" x="382" y="397" text-anchor="end" fill="var(--human)">you · gate 1</text>
+        </g>
+        <!-- 7 Build -->
+        <g>
+          <text class="ord" x="122" y="480" text-anchor="end">7</text>
+          <rect x="140" y="448" width="260" height="54" rx="9" fill="var(--agent-tint)" stroke="var(--agent)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="471">Build</text>
+          <text class="node-sub" x="158" y="488">implements plan · opens session S</text>
+          <text class="node-kind" x="382" y="469" text-anchor="end" fill="var(--agent)">agent · write</text>
+        </g>
+        <!-- 8 Gate loop -->
+        <g>
+          <text class="ord" x="122" y="552" text-anchor="end">8</text>
+          <rect x="140" y="520" width="260" height="54" rx="9" fill="var(--code-tint)" stroke="var(--code)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="543">Gate loop</text>
+          <text class="node-sub" x="158" y="560">lint · typecheck · test</text>
+          <text class="node-kind" x="382" y="541" text-anchor="end" fill="var(--code)">code</text>
+        </g>
+        <!-- 9 Review -->
+        <g>
+          <text class="ord" x="122" y="624" text-anchor="end">9</text>
+          <rect x="140" y="592" width="260" height="54" rx="9" fill="var(--agent-tint)" stroke="var(--agent)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="615">Review</text>
+          <text class="node-sub" x="158" y="632">fresh session · advisory report</text>
+          <text class="node-kind" x="382" y="613" text-anchor="end" fill="var(--agent)">agent · read-only</text>
+        </g>
+        <!-- 10 Final review -->
+        <g>
+          <text class="ord" x="122" y="696" text-anchor="end">10</text>
+          <rect x="140" y="664" width="260" height="54" rx="9" fill="var(--human-tint)" stroke="var(--human)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="687">Final review</text>
+          <text class="node-sub" x="158" y="704">diff + report → ship or reject</text>
+          <text class="node-kind" x="382" y="685" text-anchor="end" fill="var(--human)">you · gate 2</text>
+        </g>
+        <!-- 11 Ship -->
+        <g>
+          <text class="ord" x="122" y="768" text-anchor="end">11</text>
+          <rect x="140" y="736" width="260" height="54" rx="9" fill="var(--code-tint)" stroke="var(--code)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="759">Ship</text>
+          <text class="node-sub" x="158" y="776">commit · optional gh pr create</text>
+          <text class="node-kind" x="382" y="757" text-anchor="end" fill="var(--code)">code</text>
+        </g>
+        <!-- 12 Shipped -->
+        <g>
+          <text class="ord" x="122" y="840" text-anchor="end">✓</text>
+          <rect x="140" y="808" width="260" height="54" rx="16" fill="var(--output-tint)" stroke="var(--pass)" stroke-width="1.5"/>
+          <text class="node-title" x="158" y="831">Shipped</text>
+          <text class="node-sub" x="158" y="848">work on branch adw/&lt;run-id&gt;</text>
+          <text class="node-kind" x="382" y="829" text-anchor="end" fill="var(--pass)">output</text>
+        </g>
+      </svg>
+    </div>
+    <div class="note">
+      <b>The loop is the point.</b> When a gate fails, adw feeds the truncated failure output back to the build
+      agent <b>on the same session id</b> — so it never loses context — and re-runs every gate. This repeats up to
+      <code>max_fix_iterations</code> (default 3). Review always runs on a <b>fresh</b> session, so it reviews with
+      unbiased eyes.
+    </div>
+  </section>
+
+  <section>
+    <h2>How the tool works</h2>
+    <p class="sub">
+      One command flows down through deterministic code, which hands off to agents only at the node level and
+      collects every artifact. This is the “separate code from agents” rule made concrete.
+    </p>
+    <div class="arch">
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--human)">you</div>
+        <div class="acard human">
+          <h3><code>adw run feature "…"</code></h3>
+          <p>The CLI (typer) resolves the workflow and starts a run. <code>--async</code> pauses at gates; <code>--race N</code> fans out candidates.</p>
+        </div>
+      </div>
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--code)">code</div>
+        <div class="acard code">
+          <h3>Load config — <span class="path">adw.yaml → AdwConfig</span></h3>
+          <p>Gates, per-role backend + model, experts, isolation, fix budget. Repo file wins over <code>~/.config/adw</code> defaults.</p>
+        </div>
+      </div>
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--code)">code</div>
+        <div class="acard code">
+          <h3>Workflow — <span class="path">feature.py → steps.py</span></h3>
+          <p>Plain Python control flow. Each step returns “continue” or “stop”, and skips when already done — so a paused run resumes without re-running finished agents.</p>
+        </div>
+      </div>
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--agent)">agent</div>
+        <div class="acard agent">
+          <h3>Agent node — <span class="path">AgentRunner → Adapter → env</span></h3>
+          <p>Resolves the role to a backend + model (+ optional expert) and runs it headlessly: <code>claude -p --output-format json</code>, <code>codex exec --json</code>, or <code>opencode run</code> — on the host, or inside an Apple container.</p>
+          <span class="handoff">← returns output text · session id · cost, saved as a transcript</span>
+        </div>
+      </div>
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--code)">code</div>
+        <div class="acard code">
+          <h3>Code node — <span class="path">run_gates() · git_ops</span></h3>
+          <p>Runs each gate as a shell command (host or container) and captures pass/fail; branches, stages, commits, opens PRs via git on the host.</p>
+          <span class="handoff">↺ on failure, hands the excerpt back to the build agent's session</span>
+        </div>
+      </div>
+      <div class="arow">
+        <div class="lane-tag" style="--lc:var(--pass)">out</div>
+        <div class="acard output">
+          <h3>State &amp; artifacts — <span class="path">.adw/runs/&lt;id&gt;/</span></h3>
+          <p><code>state.json</code> (rewritten atomically at every step, and the hook for resume), <code>plan.md</code>, <code>review.md</code>, raw agent transcripts, and full gate logs per attempt.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Five workflows, one machine</h2>
+    <p class="sub">
+      Each workflow composes the same steps; they differ only in which agents run and where your gates sit.
+      <span class="chip loop" style="padding:2px 7px">↺</span> marks the gate loop.
+    </p>
+    <div class="matrix">
+      <div class="flow">
+        <div class="flow-name">feature</div>
+        <div class="chips">
+          <span class="chip agent">scout</span><span class="arrow-sep">→</span>
+          <span class="chip agent">plan</span><span class="arrow-sep">→</span>
+          <span class="chip human">approve</span><span class="arrow-sep">→</span>
+          <span class="chip agent">build</span><span class="arrow-sep">→</span>
+          <span class="chip code">gates ↺</span><span class="arrow-sep">→</span>
+          <span class="chip agent">review</span><span class="arrow-sep">→</span>
+          <span class="chip human">ship?</span><span class="arrow-sep">→</span>
+          <span class="chip ship">ship</span>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="flow-name">bug</div>
+        <div class="chips">
+          <span class="chip agent">scout</span><span class="arrow-sep">→</span>
+          <span class="chip agent">diagnose</span><span class="arrow-sep">→</span>
+          <span class="chip human">approve</span><span class="arrow-sep">→</span>
+          <span class="chip agent">fix + test</span><span class="arrow-sep">→</span>
+          <span class="chip code">gates ↺</span><span class="arrow-sep">→</span>
+          <span class="chip agent">review</span><span class="arrow-sep">→</span>
+          <span class="chip human">ship?</span><span class="arrow-sep">→</span>
+          <span class="chip ship">ship</span>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="flow-name">chore</div>
+        <div class="chips">
+          <span class="chip agent">build</span><span class="arrow-sep">→</span>
+          <span class="chip code">gates ↺</span><span class="arrow-sep">→</span>
+          <span class="chip human">ship?</span><span class="arrow-sep">→</span>
+          <span class="chip ship">ship</span>
+          <span class="arrow-sep" style="margin-left:4px">·</span>
+          <span class="chip" style="color:var(--muted)">one workhorse agent</span>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="flow-name">hotfix</div>
+        <div class="chips">
+          <span class="chip agent">scout</span><span class="arrow-sep">→</span>
+          <span class="chip human">approve fix</span><span class="arrow-sep">→</span>
+          <span class="chip agent">implement</span><span class="arrow-sep">→</span>
+          <span class="chip code">gates ↺</span><span class="arrow-sep">→</span>
+          <span class="chip human">ship?</span><span class="arrow-sep">→</span>
+          <span class="chip ship">ship ASAP</span>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="flow-name">cve</div>
+        <div class="chips">
+          <span class="chip agent">research</span><span class="arrow-sep">→</span>
+          <span class="chip human">approve</span><span class="arrow-sep">→</span>
+          <span class="chip agent">reproduce</span><span class="arrow-sep">→</span>
+          <span class="chip agent">mitigate</span><span class="arrow-sep">→</span>
+          <span class="chip code">gates ↺</span><span class="arrow-sep">→</span>
+          <span class="chip agent">review</span><span class="arrow-sep">→</span>
+          <span class="chip human">ship?</span><span class="arrow-sep">→</span>
+          <span class="chip ship">ship</span>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <b>cve is defensive.</b> <span style="color:var(--agent)">reproduce</span> writes a security test that <b>fails</b>
+      against the vulnerable code (proving the hole); <span style="color:var(--agent)">mitigate</span> resumes that same
+      session to implement the protection so the test passes — leaving a permanent regression guard. Reproduction stays
+      inside your own test suite.
+    </div>
+  </section>
+
+  <section>
+    <h2><span>The software factory</span> <span class="n">— around the loop</span></h2>
+    <p class="sub">
+      Loops are one piece. The factory is what routes work in, isolates it, and lets it run at scale — with you at the ends.
+    </p>
+    <div class="caps">
+      <div class="cap agent">
+        <p class="k">intake</p>
+        <h3>Factory router</h3>
+        <p>Classifies a ticket into the right workflow (a read-only agent, with a deterministic keyword fallback), so work routes itself.</p>
+        <code class="cmd">adw route "checkout 500s in prod" → hotfix</code>
+      </div>
+      <div class="cap agent">
+        <p class="k">specialization</p>
+        <h3>Agent experts</h3>
+        <p>Reusable specialized instructions attached to a role (optionally scoped to one workflow) — the video's “surgical hotfix agent”, templated into a file.</p>
+        <code class="cmd">experts/hotfix-surgeon.md → hotfix:build</code>
+      </div>
+      <div class="cap human">
+        <p class="k">human in the loop, async</p>
+        <h3>Pause &amp; resume</h3>
+        <p>Gates pause instead of blocking; approve later from anywhere. Resume replays from the checkpoint — no agent re-runs.</p>
+        <code class="cmd">adw run … --async
+adw resume &lt;id&gt; --approve</code>
+      </div>
+      <div class="cap pass">
+        <p class="k">isolation &amp; scale</p>
+        <h3>Worktrees · racing · containers</h3>
+        <p>Each run in its own git worktree; drain a queue N-at-a-time; race N candidates, first-green-wins; or run agents inside an Apple container.</p>
+        <code class="cmd">adw queue process --parallel 3
+adw run hotfix … --race 3</code>
+      </div>
+    </div>
+    <div class="note">
+      <b>Container auth, no keychain.</b> A Linux VM can't reach the macOS keychain, so adw forwards secrets as
+      <code>-e NAME</code> from the host. Run <code>claude setup-token</code> once, export
+      <code>CLAUDE_CODE_OAUTH_TOKEN</code>, and in-container <code>claude -p</code> authenticates against your Max/Pro
+      plan — no interactive login, no API bill.
+    </div>
+  </section>
+
+  <footer>
+    adw · engineers + agents + code, composed · built much of itself · <a href="https://github.com/pdoronila/adw">github.com/pdoronila/adw</a>
+  </footer>
+</div>
+</body>
+</html>
