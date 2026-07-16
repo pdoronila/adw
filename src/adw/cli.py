@@ -222,8 +222,21 @@ def route(
 
 
 @app.command()
-def workflows() -> None:
+def workflows(
+    json_output: bool = typer.Option(False, "--json", help="Print the workflows list as JSON."),
+) -> None:
     """List registered workflows."""
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {"name": name, "description": wf.description}
+                    for name, wf in sorted(WORKFLOWS.items())
+                ],
+                indent=2,
+            )
+        )
+        return
     for name, wf in sorted(WORKFLOWS.items()):
         typer.echo(f"{name:<10} {wf.description}")
 
