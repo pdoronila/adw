@@ -8,7 +8,7 @@ from pathlib import Path
 
 from adw.adapters import get_adapter
 from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
-from adw.config import AdwConfig
+from adw.config import AdwConfig, RoleAgent
 
 AdapterFactory = Callable[[str, str], AgentAdapter]  # (role, backend) -> adapter
 
@@ -25,9 +25,11 @@ class AgentRunner:
         config: AdwConfig,
         run_dir: Path,
         adapter_factory: AdapterFactory | None = None,
+        workflow: str | None = None,
     ):
         self.config = config
         self.run_dir = run_dir
+        self.workflow = workflow
         self._factory = adapter_factory or (lambda _role, backend: get_adapter(backend, config))
         self._step = 0
 
@@ -41,10 +43,13 @@ class AgentRunner:
         session_id: str | None = None,
         read_only: bool = False,
     ) -> AgentResult:
-        role_agent = self.config.resolve_role(role)
+        role_agent = self.config.resolve_role(role, self.workflow)
         adapter = self._factory(role, role_agent.backend)
+        # An "agent expert" prepends persistent specialized instructions to the prompt.
+        expert = self.config.expert_text(role_agent)
+        full_prompt = f"{expert}\n\n---\n\n{prompt}" if expert else prompt
         inv = AgentInvocation(
-            prompt=prompt,
+            prompt=full_prompt,
             cwd=cwd,
             model=role_agent.model,
             session_id=session_id,
@@ -52,14 +57,14 @@ class AgentRunner:
             timeout_s=self.config.workflow.agent_timeout,
         )
         result = adapter.invoke(inv)
-        self._persist(step_name, role, role_agent.backend, inv, result)
+        self._persist(step_name, role, role_agent, inv, result)
         return result
 
     def _persist(
         self,
         step_name: str,
         role: str,
-        backend: str,
+        role_agent: RoleAgent,
         inv: AgentInvocation,
         result: AgentResult,
     ) -> None:
@@ -68,8 +73,9 @@ class AgentRunner:
         agent_dir.mkdir(parents=True, exist_ok=True)
         artifact = {
             "role": role,
-            "backend": backend,
+            "backend": role_agent.backend,
             "model": inv.model,
+            "expert": role_agent.expert,
             "resumed_session": inv.session_id,
             "read_only": inv.read_only,
             "prompt": inv.prompt,

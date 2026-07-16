@@ -20,7 +20,9 @@ def main() -> int:
     prompt = args[args.index("-p") + 1] if "-p" in args else ""
     resumed = "--resume" in args
 
-    if "create an implementation plan" in prompt:
+    if "scout the codebase" in prompt:
+        result = "## Relevant files\n- feature.txt (to be created)\n- marker.txt (gate target)"
+    elif "create an implementation plan" in prompt:
         result = "# Plan\n\n1. Create feature.txt containing 'hello'.\n2. Create marker.txt."
     elif "implement the approved plan" in prompt:
         # Deliberately do HALF the job: the gate (test -f marker.txt) must fail

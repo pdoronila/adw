@@ -87,6 +87,18 @@ ship:
 
 Model strings are backend-native and passed through verbatim (`opus` for claude, `gpt-5-codex` for codex, `provider/model` for opencode). Global defaults live in `~/.config/adw/config.yaml`; the repo file wins.
 
+### Agent experts
+
+An **expert** is reusable specialized instructions prepended to a role's prompt — the way to template your engineering into an agent (the video's "surgical hotfix agent"). Drop `experts/<name>.md` in the target repo and attach it to a role, optionally scoped to one workflow with a `<workflow>:<role>` key:
+
+```yaml
+agents:
+  roles:
+    "hotfix:build": {backend: claude-code, model: sonnet, expert: hotfix-surgeon}
+```
+
+Now the `build` agent in the `hotfix` workflow (and only there) carries the `hotfix-surgeon` instructions. See `examples/hotfix/` for a complete one. Experts can also be defined inline under an `experts:` map.
+
 ## Run a workflow
 
 ```bash
@@ -105,11 +117,13 @@ Every workflow is composed from the same reusable steps (`src/adw/workflows/step
 
 | Workflow | Shape | For |
 |---|---|---|
-| `feature` | plan → **approve** → build → gate loop → review → **ship** | new functionality |
-| `bug` | diagnose → **approve** → fix + regression test → gate loop → review → **ship** | defects; ships a test that fails before, passes after |
+| `feature` | scout → plan → **approve** → build → gate loop → review → **ship** | new functionality |
+| `bug` | scout → diagnose → **approve** → fix + regression test → gate loop → review → **ship** | defects; ships a test that fails before, passes after |
 | `chore` | build → gate loop → **ship** (one workhorse agent, no plan/review) | small low-risk work (dep bumps, renames) |
 | `hotfix` | scout → **approve fix** → implement → gate loop → **ship ASAP** | production incidents; human signs off on the approach up front |
 | `cve` | research → **approve** → reproduce (failing test) → mitigate → gate loop → security review → **ship** | reproduce a vulnerability in your own repo, then build + regression-guard the protection |
+
+`feature` and `bug` split reconnaissance from planning: a read-only **scout** agent surveys the codebase first (relevant files, patterns to reuse, tests, constraints) and its findings feed the planner — a cheap way to raise plan quality.
 
 **Bold** = an engineer gate. Examples:
 

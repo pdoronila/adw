@@ -56,7 +56,7 @@ def _execute(
         config=config,
         state=state,
         task=task,
-        agents=AgentRunner(config, run_dir),
+        agents=AgentRunner(config, run_dir, workflow=workflow_name),
         auto_approve_plan=auto_approve_plan,
         assume_yes=assume_yes,
     )
@@ -99,7 +99,7 @@ def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> N
     typer.echo(f"task: {task}")
     typer.echo(f"repo: {repo}")
     typer.echo("agent roles:")
-    for role in ("plan", "build", "review"):
+    for role in ("scout", "plan", "build", "review"):
         ra = config.resolve_role(role)
         typer.echo(f"  {role:<8} -> {ra.backend} (model: {ra.model or 'backend default'})")
     typer.echo(f"gates (order): {', '.join(config.gate_order()) or '(none configured!)'}")
@@ -164,7 +164,7 @@ def doctor(repo: Path = REPO_OPT) -> None:
         typer.secho(f"  ✗ no adw.yaml in {repo} (using defaults — no gates!)", fg="red")
         failures += 1
     typer.secho("agent roles:", bold=True)
-    for role in ("plan", "build", "review"):
+    for role in ("scout", "plan", "build", "review"):
         ra = config.resolve_role(role)
         marker = "✓" if shutil.which(config.backends.for_backend(ra.backend).binary) else "✗"
         typer.echo(f"  {marker} {role:<8} -> {ra.backend} / {ra.model or 'default model'}")

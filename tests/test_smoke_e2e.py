@@ -71,6 +71,7 @@ def test_full_run_ships(e2e_repo: Path) -> None:
     assert (run_dir / "review.md").read_text().startswith("VERDICT: ship")
     transcripts = sorted(p.name for p in (run_dir / "agent").iterdir())
     assert [t.split("-", 1)[1] for t in transcripts] == [
+        "scout.json",
         "plan.json",
         "build.json",
         "fix-1.json",

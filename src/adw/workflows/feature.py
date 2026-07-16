@@ -13,19 +13,30 @@ from adw.workflows.base import RunOutcome, WorkflowContext
 
 class FeatureWorkflow:
     name = "feature"
-    description = "plan -> engineer approval -> build -> gate loop -> review -> engineer ship"
+    description = "scout -> plan -> approval -> build -> gate loop -> review -> engineer ship"
 
     def run(self, ctx: WorkflowContext) -> RunOutcome:
         if (outcome := steps.preflight(ctx)) is not None:
             return outcome
         steps.start_branch(ctx)
 
+        # SCOUT (read-only) -> reconnaissance the planner builds on.
+        if (outcome := steps.agent_doc(
+            ctx,
+            role="scout",
+            step_name="scout",
+            prompt_text=prompts.render("scout", task=ctx.task),
+            out_name="scout.md",
+        )) is not None:
+            return outcome
+        scout_text = (ctx.run_dir / "scout.md").read_text()
+
         # PLAN (read-only) -> engineer approval.
         if (outcome := steps.agent_doc(
             ctx,
             role="plan",
             step_name="plan",
-            prompt_text=prompts.render("plan", task=ctx.task),
+            prompt_text=prompts.render("plan", task=ctx.task, scout=scout_text),
             out_name="plan.md",
         )) is not None:
             return outcome

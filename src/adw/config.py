@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_CONFIG_NAME = "adw.yaml"
 GLOBAL_CONFIG_PATH = Path("~/.config/adw/config.yaml").expanduser()
@@ -29,6 +29,7 @@ class GateConfig(StrictModel):
 class RoleAgent(StrictModel):
     backend: str = "claude-code"
     model: str | None = None
+    expert: str | None = None  # name of an entry in AdwConfig.experts
 
 
 class AgentsConfig(StrictModel):
@@ -95,12 +96,37 @@ class AdwConfig(StrictModel):
     workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
     ship: ShipConfig = Field(default_factory=ShipConfig)
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
+    # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
+    experts: dict[str, str] = Field(default_factory=dict)
 
     def gate_order(self) -> list[str]:
         return self.workflow.gate_order or list(self.gates)
 
-    def resolve_role(self, role: str) -> RoleAgent:
+    def resolve_role(self, role: str, workflow: str | None = None) -> RoleAgent:
+        """Resolve a role, preferring a workflow-scoped override (`<workflow>:<role>`)."""
+        if workflow:
+            scoped = self.agents.roles.get(f"{workflow}:{role}")
+            if scoped is not None:
+                return scoped
         return self.agents.roles.get(role, self.agents.default)
+
+    def expert_text(self, role_agent: RoleAgent) -> str | None:
+        if role_agent.expert is None:
+            return None
+        return self.experts[role_agent.expert]
+
+    @model_validator(mode="after")
+    def _check_expert_refs(self) -> AdwConfig:
+        for name, role_agent in self.agents.roles.items():
+            if role_agent.expert is not None and role_agent.expert not in self.experts:
+                raise ValueError(
+                    f"role {name!r} references unknown expert {role_agent.expert!r}; "
+                    f"define it in experts/{role_agent.expert}.md or the experts: map"
+                )
+        default_expert = self.agents.default.expert
+        if default_expert and default_expert not in self.experts:
+            raise ValueError(f"default agent references unknown expert {default_expert!r}")
+        return self
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -135,4 +161,14 @@ def load_config(
     layers = (_load_yaml(global_path), _load_yaml(repo_dir / REPO_CONFIG_NAME), overrides or {})
     for layer in layers:
         data = _deep_merge(data, layer)
+    # Merge file-based experts (experts/<name>.md); inline `experts:` entries win.
+    file_experts = _load_experts_dir(repo_dir / "experts")
+    if file_experts:
+        data["experts"] = {**file_experts, **data.get("experts", {})}
     return AdwConfig.model_validate(data)
+
+
+def _load_experts_dir(experts_dir: Path) -> dict[str, str]:
+    if not experts_dir.is_dir():
+        return {}
+    return {p.stem: p.read_text() for p in sorted(experts_dir.glob("*.md"))}

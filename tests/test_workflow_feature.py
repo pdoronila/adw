@@ -37,7 +37,8 @@ def make_ctx(
     save_state(state, run_dir)
 
     def factory(role: str, backend: str) -> AgentAdapter:
-        return mocks[role]
+        # Unlisted roles (e.g. scout) get a permissive default adapter.
+        return mocks.setdefault(role, MockAdapter())
 
     return WorkflowContext(
         repo_dir=repo,
@@ -45,7 +46,7 @@ def make_ctx(
         config=config,
         state=state,
         task="add a marker",
-        agents=AgentRunner(config, run_dir, adapter_factory=factory),
+        agents=AgentRunner(config, run_dir, adapter_factory=factory, workflow="feature"),
         assume_yes=True,
         **flags,
     )
@@ -76,6 +77,7 @@ def test_happy_path_with_one_fix_round(target_repo: Path) -> None:
         ]
     )
     mocks: dict[str, AgentAdapter] = {
+        "scout": MockAdapter([ScriptedTurn(output="found app.py", session_id="scout-s")]),
         "plan": MockAdapter([ScriptedTurn(output="# Plan\nAdd marker.", session_id="plan-s")]),
         "build": build_mock,
         "review": MockAdapter([ScriptedTurn(output="VERDICT: ship", session_id="review-s")]),
@@ -84,6 +86,9 @@ def test_happy_path_with_one_fix_round(target_repo: Path) -> None:
     outcome = FeatureWorkflow().run(ctx)
 
     assert outcome.status == "shipped"
+    # scout ran read-only before plan, and its findings reached the plan prompt
+    assert mocks["scout"].invocations[0].read_only  # type: ignore[attr-defined]
+    assert "found app.py" in mocks["plan"].invocations[0].prompt  # type: ignore[attr-defined]
     # fix resumed the SAME build session with the gate failure in the prompt
     assert len(build_mock.invocations) == 2
     fix_inv = build_mock.invocations[1]

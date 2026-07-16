@@ -2,4 +2,9 @@ gates:
   test: {command: "uv run --no-project --with pytest pytest -x -q", timeout: 180}
 agents:
   default: {backend: claude-code, model: sonnet}
+  roles:
+    # The video's "surgical hotfix agent expert" — instructions in experts/hotfix-surgeon.md,
+    # scoped to this workflow's planning and build roles.
+    "hotfix:plan":  {backend: claude-code, model: sonnet, expert: hotfix-surgeon}
+    "hotfix:build": {backend: claude-code, model: sonnet, expert: hotfix-surgeon}
 workflow: {max_fix_iterations: 3, gate_order: [test]}

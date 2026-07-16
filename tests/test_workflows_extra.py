@@ -37,7 +37,9 @@ def make_ctx(repo: Path, mocks: dict[str, AgentAdapter], task: str = "do it") ->
         state=state,
         task=task,
         agents=AgentRunner(
-            make_config(), run_dir, adapter_factory=lambda role, backend: mocks[role]
+            make_config(),
+            run_dir,
+            adapter_factory=lambda role, backend: mocks.setdefault(role, MockAdapter()),
         ),
         assume_yes=True,
     )
@@ -76,6 +78,7 @@ def test_chore_uses_single_agent_no_plan_or_review(target_repo: Path) -> None:
 
 def test_bug_fix_flow_ships(target_repo: Path) -> None:
     mocks: dict[str, AgentAdapter] = {
+        "scout": MockAdapter([ScriptedTurn(output="scouted the bug area")]),
         "plan": MockAdapter([ScriptedTurn(output="# Diagnosis\nroot cause X", session_id="d")]),
         "build": MockAdapter(
             [ScriptedTurn(output="fixed + test", on_invoke=make_marker(target_repo))]
@@ -86,6 +89,9 @@ def test_bug_fix_flow_ships(target_repo: Path) -> None:
     outcome = BugWorkflow().run(ctx)
 
     assert outcome.status == "shipped"
+    # scout ran read-only before diagnose; diagnose got the scout findings
+    assert mocks["scout"].invocations[0].read_only  # type: ignore[attr-defined]
+    assert "scouted the bug area" in mocks["plan"].invocations[0].prompt  # type: ignore[attr-defined]
     # diagnose ran read-only; build got the diagnosis text in its prompt
     assert mocks["plan"].invocations[0].read_only  # type: ignore[attr-defined]
     assert "root cause X" in mocks["build"].invocations[0].prompt  # type: ignore[attr-defined]
