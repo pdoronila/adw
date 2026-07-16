@@ -4,11 +4,59 @@
 
 Backend-agnostic: works with **Claude Code**, **Codex CLI**, and **opencode**, interchangeable per role.
 
-## Install
+## Install (use it)
+
+`adw` is a normal Python package with an `adw` console script, so coworkers install it straight from the private repo — no clone, no `uv sync`, and uv is not required on their machine (any of `uv tool`, `pipx`, or `pip` works). The prompt templates ship inside the wheel.
+
+**Recommended — `uv tool install` from the private repo over SSH** (devs already have SSH keys for enterprise GitHub):
+
+```bash
+uv tool install git+ssh://git@github.<your-enterprise>/<org>/adw.git
+# pin to a released tag instead of the default branch:
+uv tool install git+ssh://git@github.<your-enterprise>/<org>/adw.git@v0.1.0
+
+adw --version
+uv tool update-shell     # once, if the tools bin dir isn't on PATH yet
+```
+
+Upgrade / remove: `uv tool upgrade adw` · `uv tool uninstall adw`.
+
+**HTTPS instead of SSH** (needs a PAT with read access to the repo):
+
+```bash
+uv tool install "git+https://<token>@github.<your-enterprise>/<org>/adw.git@v0.1.0"
+```
+
+**pipx / pip equivalents** (same URL forms):
+
+```bash
+pipx install "git+ssh://git@github.<your-enterprise>/<org>/adw.git@v0.1.0"
+pip  install "git+ssh://git@github.<your-enterprise>/<org>/adw.git@v0.1.0"
+```
+
+Cutting a release so installs can pin a version: `git tag v0.1.0 && git push origin v0.1.0` (optionally attach a GitHub Release).
+
+### Runtime prerequisites
+
+The Python deps (typer, pydantic, pyyaml) install automatically. Separately, each user needs on their PATH: `git`, at least one agent CLI (`claude`, `codex`, or `opencode` — whichever your `adw.yaml` roles use), and `gh` only if `ship.create_pr` is on. Run `adw doctor` in a target repo to check all of this.
+
+### Distributing as versioned wheels instead of git installs
+
+If you'd rather not grant repo read access to every consumer, build wheels and publish to an internal index (GitHub Packages / Artifactory / internal PyPI):
+
+```bash
+uv build                                   # -> dist/adw-<v>-py3-none-any.whl
+uv publish --index <your-internal-index>   # or: twine upload -r <repo> dist/*
+```
+
+Consumers then `uv tool install adw --index <your-internal-index>` (or set `pip`'s `--index-url`). This adds auth/CI overhead; the git install above is the lighter default for an internal tool.
+
+## Develop it
 
 ```bash
 uv sync
-uv run adw --help          # or: uv tool install --editable . && adw --help
+uv run adw --help
+uv run pytest && uv run ruff check . && uv run mypy
 ```
 
 ## Point it at a repo
