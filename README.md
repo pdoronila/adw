@@ -4,6 +4,8 @@
 
 Backend-agnostic: works with **Claude Code**, **Codex CLI**, and **opencode**, interchangeable per role.
 
+Built from the thesis in IndieDevDan's video [*FORGET Loop Engineering. Agentic Engineering is about THIS*](https://www.youtube.com/watch?v=VQy50fuxI34) — AI developer workflows over "loops". A visual walkthrough of how adw works: **https://pdoronila.github.io/adw/**
+
 ## Install (use it)
 
 `adw` is a normal Python package with an `adw` console script, so coworkers install it straight from the private repo — no clone, no `uv sync`, and uv is not required on their machine (any of `uv tool`, `pipx`, or `pip` works). The prompt templates ship inside the wheel.
