@@ -52,8 +52,9 @@ class FeatureWorkflow:
         if (outcome := steps.gate_loop(ctx)) is not None:
             return outcome
 
-        # REVIEW (advisory) -> engineer ship.
-        steps.review(ctx, context=plan_text)
+        # REVIEW loop: concerns route back to the build session, then re-gate + re-review.
+        if (outcome := steps.review_loop(ctx, context=plan_text)) is not None:
+            return outcome
         if (outcome := steps.final_gate(ctx)) is not None:
             return outcome
         return steps.ship(ctx)

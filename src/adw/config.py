@@ -39,6 +39,7 @@ class AgentsConfig(StrictModel):
 
 class WorkflowConfig(StrictModel):
     max_fix_iterations: int = 3
+    max_review_iterations: int = 2
     gate_order: list[str] | None = None  # None -> declared order of `gates`
     agent_timeout: int = 1800
 

@@ -11,6 +11,7 @@ from adw.config import AdwConfig, load_config
 def test_defaults() -> None:
     config = AdwConfig()
     assert config.workflow.max_fix_iterations == 3
+    assert config.workflow.max_review_iterations == 2
     assert config.agents.default.backend == "claude-code"
     assert config.backends.for_backend("claude-code").binary == "claude"
     assert config.backends.for_backend("codex").binary == "codex"

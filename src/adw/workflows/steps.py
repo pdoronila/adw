@@ -8,6 +8,7 @@ owns the two human gates.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import typer
@@ -234,17 +235,19 @@ def resume_turn(
     return None
 
 
-def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None:
+def gate_loop(
+    ctx: WorkflowContext, *, role: str = "build", step_prefix: str = ""
+) -> RunOutcome | None:
     """Run all gates; on failure, resume the build session with the failures. Repeat."""
     state, config, repo = ctx.state, ctx.config, ctx.repo_dir
-    if state.gates_passed:
-        return None  # resuming after gates already passed
+    if any(r.name.startswith(f"{step_prefix}gates-") and r.status == "ok" for r in state.steps):
+        return None  # this round's gates already passed (resume)
     gate_order = config.gate_order()
     gates_dir = ctx.run_dir / "gates"
     max_fixes = config.workflow.max_fix_iterations
     passed = False
     for attempt in range(1, max_fixes + 2):
-        state.start_step(f"gates-{attempt}")
+        state.start_step(f"{step_prefix}gates-{attempt}")
         results = code_node.run_gates(gate_order, config.gates, repo, gates_dir, attempt, ctx.env)
         state.gate_results.append(
             {
@@ -256,13 +259,13 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
         )
         failures = [r for r in results if not r.ok]
         if not failures:
-            state.end_step(f"gates-{attempt}", "ok")
+            state.end_step(f"{step_prefix}gates-{attempt}", "ok")
             state.gates_passed = True
             save_state(state, ctx.run_dir)
             passed = True
             break
         names = ", ".join(f.name for f in failures)
-        state.end_step(f"gates-{attempt}", "failed", f"failed: {names}")
+        state.end_step(f"{step_prefix}gates-{attempt}", "failed", f"failed: {names}")
         save_state(state, ctx.run_dir)
         if attempt > max_fixes:
             break
@@ -275,7 +278,7 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
             ctx,
             prompts.render("fix", failures=render_failures(failures)),
             role=role,
-            step_name=f"fix-{attempt}",
+            step_name=f"{step_prefix}fix-{attempt}",
         )
         if outcome is not None:
             return outcome
@@ -289,14 +292,34 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
     return None
 
 
-def review(ctx: WorkflowContext, *, context: str, prompt_name: str = "review") -> None:
-    """Fresh-session, read-only review of the diff. Advisory; writes review.md."""
+def _parse_verdict(text: str) -> str:
+    """Extract the review verdict. Unparseable/empty -> 'ship' (never loops)."""
+    for line in text.splitlines():
+        match = re.match(r"\s*VERDICT:\s*(ship|concerns)\b", line, re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    return "ship"
+
+
+def review(
+    ctx: WorkflowContext,
+    *,
+    context: str,
+    prompt_name: str = "review",
+    step_name: str = "review",
+) -> tuple[str, str]:
+    """Fresh-session, read-only review of the diff. Returns (verdict, review_text)."""
     repo = ctx.repo_dir
     state = ctx.state
-    if _done(ctx, "review"):
-        return  # resuming: review already ran
+    if _done(ctx, step_name):
+        # resuming: re-parse the latest review.md (skipped reviews left no file).
+        review_path = ctx.run_dir / "review.md"
+        if review_path.exists():
+            text = review_path.read_text()
+            return _parse_verdict(text), text
+        return "ship", ""
     git_ops.stage_all(repo)  # so new files appear in the diff vs the base
-    state.start_step("review")
+    state.start_step(step_name)
     result = ctx.agents.run(
         "review",
         prompts.render(
@@ -305,17 +328,50 @@ def review(ctx: WorkflowContext, *, context: str, prompt_name: str = "review") -
             diff=code_node.truncate_middle(git_ops.full_diff(repo, state.base_branch)),
         ),
         cwd=repo,
-        step_name="review",
+        step_name=step_name,
         read_only=True,
     )
     state.add_cost(result.cost_usd)
     if result.ok and result.output.strip():
         (ctx.run_dir / "review.md").write_text(result.output)
-        state.end_step("review", "ok")
-    else:
-        state.end_step("review", "skipped", f"review agent failed: {result.error}")
+        state.end_step(step_name, "ok")
+        save_state(state, ctx.run_dir)
+        return _parse_verdict(result.output), result.output
+    state.end_step(step_name, "skipped", f"review agent failed: {result.error}")
+    save_state(state, ctx.run_dir)
+    return "ship", ""
+
+
+def review_loop(
+    ctx: WorkflowContext, *, context: str, prompt_name: str = "review"
+) -> RunOutcome | None:
+    """Review the diff; on 'concerns', resume the build session to revise,
+    re-run the gates, and re-review — up to workflow.max_review_iterations rounds."""
+    state = ctx.state
+    max_rounds = ctx.config.workflow.max_review_iterations
+    for round_no in range(max_rounds + 1):
+        step_name = "review" if round_no == 0 else f"review-{round_no + 1}"
+        verdict, review_text = review(
+            ctx, context=context, prompt_name=prompt_name, step_name=step_name
+        )
+        if verdict != "concerns" or round_no >= max_rounds:
+            break
+        revise = round_no + 1
+        typer.secho(
+            f"review raised concerns; routing back to build agent [revise {revise}/{max_rounds}]",
+            fg="yellow",
+        )
+        state.review_rounds = revise
+        outcome = resume_turn(
+            ctx, prompts.render("revise", review=review_text), step_name=f"revise-{revise}"
+        )
+        if outcome is not None:
+            return outcome
+        if (outcome := gate_loop(ctx, step_prefix=f"r{revise}-")) is not None:
+            return outcome
     state.status = "awaiting_final_review"
     save_state(state, ctx.run_dir)
+    return None
 
 
 def final_gate(ctx: WorkflowContext) -> RunOutcome | None:

@@ -51,6 +51,7 @@ class RunState(BaseModel):
     worktree: str | None = None  # set when isolation.type == "worktree"
     build_session_id: str | None = None
     fix_attempts: int = 0
+    review_rounds: int = 0
     pending_gate: str | None = None  # "plan" | "final" when awaiting an engineer decision
     gates_passed: bool = False
     steps: list[StepRecord] = Field(default_factory=list)

@@ -68,7 +68,11 @@ class CveWorkflow:
         if (outcome := steps.gate_loop(ctx)) is not None:
             return outcome
 
-        steps.review(ctx, context=analysis, prompt_name="cve_review")
+        # REVIEW loop: concerns route back to the build session, then re-gate + re-review.
+        if (outcome := steps.review_loop(
+            ctx, context=analysis, prompt_name="cve_review"
+        )) is not None:
+            return outcome
         if (outcome := steps.final_gate(ctx)) is not None:
             return outcome
         return steps.ship(ctx)

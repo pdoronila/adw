@@ -16,11 +16,15 @@ from adw.workflows.base import WorkflowContext
 from adw.workflows.feature import FeatureWorkflow
 
 
-def make_config(max_fixes: int = 3) -> AdwConfig:
+def make_config(max_fixes: int = 3, max_reviews: int = 2) -> AdwConfig:
     return AdwConfig.model_validate(
         {
             "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
-            "workflow": {"max_fix_iterations": max_fixes, "gate_order": ["marker"]},
+            "workflow": {
+                "max_fix_iterations": max_fixes,
+                "max_review_iterations": max_reviews,
+                "gate_order": ["marker"],
+            },
         }
     )
 
@@ -211,3 +215,109 @@ def test_plan_agent_failure_fails_run(target_repo: Path) -> None:
     outcome = FeatureWorkflow().run(ctx)
     assert outcome.status == "failed"
     assert "plan agent failed" in outcome.reason
+
+
+def test_review_ship_first_no_revise(target_repo: Path) -> None:
+    """A 'ship' verdict on the first review skips the revise loop entirely."""
+    build_mock = MockAdapter(
+        [ScriptedTurn(output="built", session_id="build-s1", on_invoke=touch_marker(target_repo))]
+    )
+    review_mock = MockAdapter([ScriptedTurn(output="VERDICT: ship")])
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": review_mock,
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"
+    assert len(build_mock.invocations) == 1  # no revise
+    assert len(review_mock.invocations) == 1  # no re-review
+
+
+def test_review_concerns_then_ship(target_repo: Path) -> None:
+    """'concerns' routes back to the build session; the next review ships."""
+    build_mock = MockAdapter(
+        [
+            ScriptedTurn(
+                output="built", session_id="build-s1", on_invoke=touch_marker(target_repo)
+            ),
+            ScriptedTurn(output="revised", session_id="build-s1"),
+        ]
+    )
+    review_mock = MockAdapter(
+        [
+            ScriptedTurn(output="VERDICT: concerns\n- missing null check"),
+            ScriptedTurn(output="VERDICT: ship"),
+        ]
+    )
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": review_mock,
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"
+    assert len(build_mock.invocations) == 2  # 1 build + 1 revise
+    revise_inv = build_mock.invocations[1]
+    assert revise_inv.session_id == "build-s1"  # resumed the build session
+    assert "missing null check" in revise_inv.prompt  # concerns reached the revise prompt
+    assert len(review_mock.invocations) == 2
+    assert all(inv.session_id is None for inv in review_mock.invocations)  # fresh sessions
+    # the gates re-ran after the revise
+    assert any(r.name == "r1-gates-1" and r.status == "ok" for r in ctx.state.steps)
+    assert (ctx.run_dir / "review.md").read_text().startswith("VERDICT: ship")
+
+
+def test_review_iteration_cap(target_repo: Path) -> None:
+    """Persistent 'concerns' stops after max_review_iterations revise rounds."""
+    build_mock = MockAdapter(
+        [
+            ScriptedTurn(
+                output="built", session_id="build-s1", on_invoke=touch_marker(target_repo)
+            ),
+            ScriptedTurn(output="revise 1", session_id="build-s1"),
+            ScriptedTurn(output="revise 2", session_id="build-s1"),
+        ]
+    )
+    review_mock = MockAdapter(
+        [
+            ScriptedTurn(output="VERDICT: concerns\n- one"),
+            ScriptedTurn(output="VERDICT: concerns\n- two"),
+            ScriptedTurn(output="VERDICT: concerns\n- three"),
+        ]
+    )
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": review_mock,
+    }
+    ctx = make_ctx(target_repo, make_config(max_reviews=2), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"  # assume_yes approves the final gate
+    assert len(review_mock.invocations) == 3  # initial + 2 re-reviews
+    assert len(build_mock.invocations) == 3  # 1 build + 2 revises (cap respected)
+    assert ctx.state.review_rounds == 2
+
+
+def test_review_unparseable_verdict_ships(target_repo: Path) -> None:
+    """A review with no VERDICT line is treated as 'ship' — no loop."""
+    build_mock = MockAdapter(
+        [ScriptedTurn(output="built", session_id="build-s1", on_invoke=touch_marker(target_repo))]
+    )
+    review_mock = MockAdapter([ScriptedTurn(output="Looks fine to me.")])
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": review_mock,
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"
+    assert len(build_mock.invocations) == 1
+    assert len(review_mock.invocations) == 1

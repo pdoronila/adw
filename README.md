@@ -80,6 +80,7 @@ agents:
 
 workflow:
   max_fix_iterations: 3
+  max_review_iterations: 2
   gate_order: [lint, typecheck, test]
 
 ship:
@@ -149,7 +150,7 @@ What `adw run feature` does:
 4. **Engineer gate 1** — approve / edit in `$EDITOR` / reject
 5. **Build** *(agent)* — implements the plan; session id is persisted
 6. **Gate loop** *(code)* — run all gates; on failure, feed excerpts back into the **same build session**; repeat up to `max_fix_iterations`
-7. **Review** *(agent, fresh session, read-only)* — advisory report on the diff
+7. **Review loop** *(agent, fresh session each round, read-only)* — reviews the diff; `VERDICT: concerns` routes the findings back into the **build session** (revise), re-runs the gate loop, and re-reviews, up to `max_review_iterations` rounds; then proceeds to the final gate either way
 8. **Engineer gate 2** — diff summary + review → ship or reject
 9. **Ship** *(code)* — commit on the work branch, optional `gh pr create`
 
@@ -282,12 +283,12 @@ adw queue process --all --parallel 3 -y
 
 - **Separate code from agents.** Orchestration, gates, and git are plain code — fast, free, deterministic. Agents only do the fuzzy work (plan, build, fix, review).
 - **Same session for fixes.** Gate failures resume the build agent's session so accumulated context is never thrown away.
-- **Fresh session for review.** The reviewer must not share the builder's biases.
+- **Fresh session for review.** The reviewer must not share the builder's biases. When it raises concerns, those findings loop back into the build session for a revise round (re-gated, re-reviewed) before the human final gate.
 - **Engineer at the ends.** Prompting/planning and reviewing/validation are the two constraints of agentic engineering; everything between them runs without you.
 
 ## Extending
 
-- New workflow: compose one from the shared steps in `src/adw/workflows/steps.py` (`preflight`, `start_branch`, `agent_doc`, `approve_gate`, `build`, `resume_turn`, `gate_loop`, `review`, `final_gate`, `ship`) — each returns `RunOutcome | None`, where non-None short-circuits. See `feature.py`/`cve.py` for the pattern; register it in `WORKFLOWS`.
+- New workflow: compose one from the shared steps in `src/adw/workflows/steps.py` (`preflight`, `start_branch`, `agent_doc`, `approve_gate`, `build`, `resume_turn`, `gate_loop`, `review`, `review_loop`, `final_gate`, `ship`) — each returns `RunOutcome | None`, where non-None short-circuits. See `feature.py`/`cve.py` for the pattern; register it in `WORKFLOWS`.
 - New backend: subclass `AgentAdapter` (`build_command` + `parse_output`), register in `ADAPTERS`, add a `BackendOpts` model.
 - New prompt: drop a `<name>.md` in `src/adw/prompts/` and render it with `prompts.render(name, **kwargs)`.
 
