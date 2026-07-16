@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from adw.config import BackendOpts
+from adw.exec_env import ExecutionEnvironment, LocalEnv
 
 
 @dataclass
@@ -22,6 +23,8 @@ class AgentInvocation:
     session_id: str | None = None  # None -> new session; set -> resume
     read_only: bool = False
     timeout_s: int = 1800
+    # Where the command runs (host or container). None -> host (LocalEnv).
+    env: ExecutionEnvironment | None = None
 
 
 @dataclass
@@ -70,15 +73,10 @@ class AgentAdapter(ABC):
 
     def invoke(self, inv: AgentInvocation) -> AgentResult:
         cmd = self.build_command(inv)
+        env = inv.env or LocalEnv()
         start = time.monotonic()
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=inv.cwd,
-                capture_output=True,
-                text=True,
-                timeout=inv.timeout_s,
-            )
+            proc = env.run_argv(cmd, cwd=inv.cwd, timeout=inv.timeout_s)
         except subprocess.TimeoutExpired as exc:
             return AgentResult(
                 ok=False,

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adw.config import GateConfig
+from adw.exec_env import ExecutionEnvironment, LocalEnv
 
 HEAD_CHARS = 2_000
 TAIL_CHARS = 8_000
@@ -32,19 +33,20 @@ def truncate_middle(text: str, head: int = HEAD_CHARS, tail: int = TAIL_CHARS) -
     return f"{text[:head]}\n…[{omitted} chars truncated]…\n{text[-tail:]}"
 
 
-def run_gate(name: str, cfg: GateConfig, cwd: Path, log_dir: Path, attempt: int) -> GateResult:
+def run_gate(
+    name: str,
+    cfg: GateConfig,
+    cwd: Path,
+    log_dir: Path,
+    attempt: int,
+    env: ExecutionEnvironment | None = None,
+) -> GateResult:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"attempt-{attempt}-{name}.log"
+    env = env or LocalEnv()
     start = time.monotonic()
     try:
-        proc = subprocess.run(
-            cfg.command,
-            shell=True,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout,
-        )
+        proc = env.run_shell(cfg.command, cwd=cwd, timeout=cfg.timeout)
         combined = proc.stdout + (("\n--- stderr ---\n" + proc.stderr) if proc.stderr else "")
         exit_code = proc.returncode
         ok = exit_code == 0
@@ -73,6 +75,7 @@ def run_gates(
     cwd: Path,
     log_dir: Path,
     attempt: int,
+    env: ExecutionEnvironment | None = None,
 ) -> list[GateResult]:
     """Run every configured gate (no fail-fast) so one fix prompt carries full signal."""
-    return [run_gate(name, gates[name], cwd, log_dir, attempt) for name in order]
+    return [run_gate(name, gates[name], cwd, log_dir, attempt, env) for name in order]

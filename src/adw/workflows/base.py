@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from adw.config import AdwConfig
+from adw.exec_env import ExecutionEnvironment, LocalEnv
 from adw.nodes.agent_node import AgentRunner
 from adw.state.run_state import RunState
 
@@ -21,6 +22,8 @@ class WorkflowContext:
     agents: AgentRunner
     auto_approve_plan: bool = False
     assume_yes: bool = False
+    # Where agent + gate commands run (host or container). Git stays on the host.
+    env: ExecutionEnvironment = field(default_factory=LocalEnv)
     # "interactive" blocks at human gates; "async" pauses and persists instead.
     mode: Literal["interactive", "async"] = "interactive"
     # A decision injected by `adw resume` for the one pending gate.

@@ -14,6 +14,7 @@ from adw import __version__, routing
 from adw.adapters import ADAPTERS, get_adapter
 from adw.adapters.base import AgentInvocation
 from adw.config import AdwConfig, load_config
+from adw.exec_env import make_env
 from adw.nodes.agent_node import AgentRunner
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
@@ -24,8 +25,10 @@ app = typer.Typer(
 )
 queue_app = typer.Typer(help="Process the file-based ticket queue.", no_args_is_help=True)
 ticket_app = typer.Typer(help="Create and inspect tickets.", no_args_is_help=True)
+sandbox_app = typer.Typer(help="Manage the Apple container sandbox image.", no_args_is_help=True)
 app.add_typer(queue_app, name="queue")
 app.add_typer(ticket_app, name="ticket")
+app.add_typer(sandbox_app, name="sandbox")
 
 REPO_OPT = typer.Option(Path("."), "--repo", help="Target repository", resolve_path=True)
 
@@ -81,16 +84,18 @@ def _execute(
     run_dir = rs.create_run_dir(repo, run_id)
     state = rs.RunState(run_id=run_id, workflow=workflow_name, task=task, repo=str(repo))
     rs.save_state(state, run_dir)
+    env = make_env(config)
     ctx = WorkflowContext(
         repo_dir=repo,
         run_dir=run_dir,
         config=config,
         state=state,
         task=task,
-        agents=AgentRunner(config, run_dir, workflow=workflow_name),
+        agents=AgentRunner(config, run_dir, workflow=workflow_name, env=env),
         auto_approve_plan=auto_approve_plan,
         assume_yes=assume_yes,
         mode="async" if async_mode else "interactive",
+        env=env,
     )
     typer.secho(f"▶ run {run_id} [{workflow_name}] in {repo}", bold=True)
     outcome = workflow.run(ctx)
@@ -278,15 +283,17 @@ def resume(
 
     target_repo = Path(state.repo)
     config = _load(target_repo)
+    env = make_env(config)
     ctx = WorkflowContext(
         repo_dir=target_repo,
         run_dir=run_dir,
         config=config,
         state=state,
         task=state.task,
-        agents=AgentRunner(config, run_dir, workflow=state.workflow),
+        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env),
         mode="async",
         decision=decision,  # type: ignore[arg-type]
+        env=env,
     )
     typer.secho(
         f"▶ resume {run_id} [{state.workflow}] {decision} {state.pending_gate} gate", bold=True
@@ -346,6 +353,21 @@ def doctor(repo: Path = REPO_OPT) -> None:
     if config.ship.create_pr and not shutil.which("gh"):
         typer.secho("  ✗ ship.create_pr is on but `gh` is not installed", fg="red")
         failures += 1
+    typer.secho("isolation:", bold=True)
+    iso = config.isolation
+    typer.echo(f"  type: {iso.type}")
+    if iso.type == "container":
+        if shutil.which(iso.binary):
+            typer.secho(f"  ✓ {iso.binary} present (image: {iso.image})", fg="green")
+        else:
+            typer.secho(f"  ✗ {iso.binary} not found — install Apple's `container`", fg="red")
+            failures += 1
+        for secret in iso.secrets:
+            if os.environ.get(secret):
+                typer.secho(f"  ✓ secret {secret} set", fg="green")
+            else:
+                typer.secho(f"  ✗ secret {secret} missing from env", fg="red")
+                failures += 1
     raise typer.Exit(1 if failures else 0)
 
 
@@ -482,6 +504,30 @@ def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bo
     typer.secho(f"\nprocessed {len(results)} tickets:", bold=True)
     for title, status in results:
         typer.secho(f"  {status:<9} {title}", fg=_STATUS_COLOR.get(status, "white"))
+
+
+@sandbox_app.command("build")
+def sandbox_build(
+    repo: Path = REPO_OPT,
+    image: str | None = typer.Option(None, help="Image tag (default: isolation.image)"),
+) -> None:
+    """Build the container image agents run inside (wraps `container build`)."""
+    config = _load(repo)
+    image = image or config.isolation.image
+    binary = config.isolation.binary
+    if not shutil.which(binary):
+        typer.secho(f"{binary!r} not found — install Apple's `container`", fg="red")
+        raise typer.Exit(1)
+    dockerfile = repo / "sandbox" / "Dockerfile"  # repo-local override
+    if not dockerfile.is_file():
+        dockerfile = Path(__file__).parent / "sandbox" / "Dockerfile"  # packaged default
+    typer.secho(f"building {image} from {dockerfile}", bold=True)
+    proc = subprocess.run(
+        [binary, "build", "-t", image, "-f", str(dockerfile), str(dockerfile.parent)]
+    )
+    if proc.returncode == 0:
+        typer.secho(f"✓ built {image}", fg="green")
+    raise typer.Exit(proc.returncode)
 
 
 @app.command("_agent", hidden=True)

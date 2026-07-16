@@ -242,7 +242,7 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
     passed = False
     for attempt in range(1, max_fixes + 2):
         state.start_step(f"gates-{attempt}")
-        results = code_node.run_gates(gate_order, config.gates, repo, gates_dir, attempt)
+        results = code_node.run_gates(gate_order, config.gates, repo, gates_dir, attempt, ctx.env)
         state.gate_results.append(
             {
                 "attempt": attempt,

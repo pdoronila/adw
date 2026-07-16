@@ -215,7 +215,28 @@ isolation:
   adw run hotfix "checkout 500s on empty cart" --race 3
   ```
 
-Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage. `container` isolation (Apple containers) is covered next.
+Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage.
+
+### Container sandboxes (Apple `container`)
+
+`isolation.type: container` runs each agent and gate inside an [Apple container](https://github.com/apple/container) — a lightweight Linux VM per invocation (macOS 26; macOS 15 with limits). Git orchestration stays on the host; only the untrusted agent + gate commands enter the sandbox.
+
+```yaml
+isolation:
+  type: container
+  image: adw-sandbox
+  secrets: [ANTHROPIC_API_KEY]   # forwarded into the container as -e
+```
+
+```bash
+adw sandbox build          # build the image (git + node + agent CLIs)
+export ANTHROPIC_API_KEY=sk-ant-...
+adw run chore "..." --repo . 
+```
+
+**Auth** is the key detail: the macOS keychain doesn't cross into a Linux VM, so there's no interactive login inside the container. Instead adw forwards the named `secrets` as `-e NAME` (the host value passes through), and in `-p` mode Claude Code authenticates directly from `ANTHROPIC_API_KEY`. Use `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) to bill against a Pro/Max/Team plan instead of the API; `OPENAI_API_KEY` for codex; provider keys for opencode. `adw doctor` reports whether the `container` binary and each secret are present.
+
+The image is defined by a Dockerfile shipped with adw (`adw sandbox build` uses it; drop a `sandbox/Dockerfile` in your repo to override). Add or remove agent CLIs there to match the backends your `adw.yaml` uses.
 
 ## Design rules (from the thesis)
 

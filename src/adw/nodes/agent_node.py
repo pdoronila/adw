@@ -9,6 +9,7 @@ from pathlib import Path
 from adw.adapters import get_adapter
 from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
 from adw.config import AdwConfig, RoleAgent
+from adw.exec_env import ExecutionEnvironment
 
 AdapterFactory = Callable[[str, str], AgentAdapter]  # (role, backend) -> adapter
 
@@ -26,10 +27,12 @@ class AgentRunner:
         run_dir: Path,
         adapter_factory: AdapterFactory | None = None,
         workflow: str | None = None,
+        env: ExecutionEnvironment | None = None,
     ):
         self.config = config
         self.run_dir = run_dir
         self.workflow = workflow
+        self.env = env
         self._factory = adapter_factory or (lambda _role, backend: get_adapter(backend, config))
         # Continue transcript numbering across a resumed run.
         agent_dir = run_dir / "agent"
@@ -57,6 +60,7 @@ class AgentRunner:
             session_id=session_id,
             read_only=read_only,
             timeout_s=self.config.workflow.agent_timeout,
+            env=self.env,
         )
         result = adapter.invoke(inv)
         self._persist(step_name, role, role_agent, inv, result)
