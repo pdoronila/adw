@@ -302,6 +302,23 @@ def _parse_verdict(text: str) -> str:
     return "ship"
 
 
+_WORKFLOW_COMMIT_TYPE = {
+    "feature": "feat",
+    "bug": "fix",
+    "chore": "chore",
+    "hotfix": "fix",
+    "cve": "fix",
+}
+
+
+def _commit_subject(task: str, workflow: str, max_len: int = 72) -> str:
+    """Deterministic conventional-commit subject: '<type>: <first line, truncated>'."""
+    first_line = task.strip().splitlines()[0] if task.strip() else ""
+    subject = first_line[:max_len].rstrip()
+    prefix = _WORKFLOW_COMMIT_TYPE.get(workflow, "chore")
+    return f"{prefix}: {subject}"
+
+
 def review(
     ctx: WorkflowContext,
     *,
@@ -414,7 +431,10 @@ def ship(ctx: WorkflowContext, *, title: str | None = None) -> RunOutcome:
     state, config, repo = ctx.state, ctx.config, ctx.repo_dir
     git_ops.stage_all(repo)
     state.start_step("ship")
-    commit = git_ops.commit_all(repo, f"{title or ctx.task}\n\nadw-run: {state.run_id}")
+    subject = title or _commit_subject(ctx.task, state.workflow)
+    commit = git_ops.commit_all(
+        repo, f"{subject}\n\n{ctx.task}\n\nadw-run: {state.run_id}"
+    )
     detail = f"commit {commit} on {state.work_branch}"
 
     if config.ship.create_pr:
@@ -437,7 +457,7 @@ def ship(ctx: WorkflowContext, *, title: str | None = None) -> RunOutcome:
                 git_ops.push_branch(repo, state.work_branch)
                 summary = git_ops.diff_summary(repo, state.base_branch)
                 pr_url = git_ops.create_pr(
-                    repo, title or ctx.task, f"Automated by adw run {state.run_id}\n\n{summary}"
+                    repo, subject, f"Automated by adw run {state.run_id}\n\n{summary}"
                 )
                 detail += f"; PR {pr_url}"
             except git_ops.GitError as exc:
