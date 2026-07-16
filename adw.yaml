@@ -7,11 +7,8 @@ gates:
   test:      {command: "uv run pytest -x -q", timeout: 900}
 
 agents:
-  default: {backend: claude-code, model: opus}
-  roles:
-    plan:   {backend: claude-code, model: fable}
-    build:  {backend: claude-code, model: opus}
-    review: {backend: claude-code, model: opus}
+  default: {backend: claude-code, model: sonnet}   # temporary: sonnet for ticket batch
+
 
 workflow:
   max_fix_iterations: 3
