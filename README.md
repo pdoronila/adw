@@ -197,6 +197,26 @@ adw resume 20260716-... --edit               # edit the plan/diff, then approve
 
 Resuming replays the workflow from its checkpoint: completed steps are skipped (no agent re-invocation — the plan, build session, and gate results are all persisted), and only the pending gate advances. This is what lets the queue run many tickets without a human babysitting each one.
 
+## Isolation, parallelism & racing
+
+By default a run works on a branch in the main tree (`isolation.type: local`). Set `isolation.type: worktree` and each run gets its own **git worktree** — so runs don't trip over each other and can go concurrently:
+
+```yaml
+isolation:
+  type: worktree            # local | worktree | container
+```
+
+- **Parallel queue** — drain the queue N-at-a-time (each ticket in its own worktree):
+  ```bash
+  adw queue process --all --parallel 4 -y
+  ```
+- **Racing** — spin up N candidates for one task; the first to pass gates wins, the losers' branches are dropped (the video's "3, 5, 10 agents racing, fastest wins"):
+  ```bash
+  adw run hotfix "checkout 500s on empty cart" --race 3
+  ```
+
+Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage. `container` isolation (Apple containers) is covered next.
+
 ## Design rules (from the thesis)
 
 - **Separate code from agents.** Orchestration, gates, and git are plain code — fast, free, deterministic. Agents only do the fuzzy work (plan, build, fix, review).

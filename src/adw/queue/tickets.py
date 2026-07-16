@@ -91,14 +91,18 @@ def list_tickets(repo: Path, state: str = "queue") -> list[Ticket]:
     directory = tickets_root(repo) / state
     if not directory.is_dir():
         return []
-    tickets = []
+    # Capture the sort key while reading each file — a concurrent claim_next may
+    # rename tickets away, so never stat again during the sort.
+    scored: list[tuple[int, float, Ticket]] = []
     for path in directory.glob("*.md"):
         try:
-            tickets.append(parse_ticket(path))
-        except TicketError:
+            ticket = parse_ticket(path)
+            mtime = path.stat().st_mtime
+        except (TicketError, OSError):
             continue
-    tickets.sort(key=lambda t: (t.priority, t.path.stat().st_mtime))
-    return tickets
+        scored.append((ticket.priority, mtime, ticket))
+    scored.sort(key=lambda s: (s[0], s[1]))
+    return [ticket for _, _, ticket in scored]
 
 
 def claim_next(repo: Path) -> Ticket | None:

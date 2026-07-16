@@ -51,9 +51,19 @@ def _report(state: rs.RunState, outcome: RunOutcome, run_dir: Path) -> None:
     typer.secho(f"■ {outcome.status}: {outcome.reason}", fg=color, bold=True)
     for hint in outcome.hints:
         typer.echo(f"  ↳ {hint}")
+    if state.worktree and outcome.status not in ("shipped", "rejected"):
+        typer.echo(f"  worktree kept for salvage: {state.worktree}")
     if state.total_cost_usd:
         typer.echo(f"  agent cost: ${state.total_cost_usd:.2f}")
     typer.echo(f"  artifacts: {run_dir}")
+
+
+def _cleanup_isolation(state: rs.RunState) -> None:
+    """Remove a per-run worktree once its work is safely on the branch (shipped)."""
+    if state.worktree and state.status == "shipped":
+        from adw.nodes import git_ops
+
+        git_ops.remove_worktree(Path(state.repo), Path(state.worktree))
 
 
 def _execute(
@@ -64,9 +74,10 @@ def _execute(
     auto_approve_plan: bool,
     assume_yes: bool,
     async_mode: bool = False,
+    run_suffix: str = "",
 ) -> rs.RunState:
     workflow = get_workflow(workflow_name)
-    run_id = rs.new_run_id(task)
+    run_id = rs.new_run_id(task) + run_suffix
     run_dir = rs.create_run_dir(repo, run_id)
     state = rs.RunState(run_id=run_id, workflow=workflow_name, task=task, repo=str(repo))
     rs.save_state(state, run_dir)
@@ -84,6 +95,7 @@ def _execute(
     typer.secho(f"▶ run {run_id} [{workflow_name}] in {repo}", bold=True)
     outcome = workflow.run(ctx)
     _report(state, outcome, run_dir)
+    _cleanup_isolation(state)
     return state
 
 
@@ -97,6 +109,9 @@ def run(
     async_mode: bool = typer.Option(
         False, "--async", help="Pause at engineer gates instead of blocking; resume later"
     ),
+    race: int = typer.Option(
+        1, help="Run N isolated candidates concurrently; first to pass gates wins"
+    ),
     max_iterations: int | None = typer.Option(None, help="Override workflow.max_fix_iterations"),
     dry_run: bool = typer.Option(False, help="Print the resolved plan of execution and exit"),
 ) -> None:
@@ -107,8 +122,58 @@ def run(
     if dry_run:
         _print_dry_run(workflow, task, repo, config)
         return
+    if race > 1:
+        winner = _race(workflow, task, repo, config, race)
+        raise typer.Exit(0 if winner is not None else 1)
     state = _execute(workflow, task, repo, config, auto_approve_plan, yes, async_mode)
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
+
+
+def _race(
+    workflow: str, task: str, repo: Path, config: AdwConfig, n: int
+) -> rs.RunState | None:
+    """Run N isolated candidates concurrently; the first to ship wins.
+
+    Requires worktree/container isolation so candidates don't collide. Candidates
+    run unattended; the first one whose gates pass is the winner. (Losers run to
+    completion — mid-flight cancellation of a running agent is a future refinement.)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if config.isolation.type == "local":
+        typer.secho("--race needs isolation.type: worktree (or container)", fg="red")
+        raise typer.Exit(2)
+    typer.secho(f"racing {n} candidates for: {task}", bold=True)
+
+    def candidate(i: int) -> rs.RunState:
+        return _execute(
+            workflow, task, repo, config, True, True, run_suffix=f"-r{i}"
+        )
+
+    winner: rs.RunState | None = None
+    others: list[rs.RunState] = []
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        futures = [pool.submit(candidate, i) for i in range(n)]
+        for future in as_completed(futures):
+            state = future.result()
+            if state.status == "shipped" and winner is None:
+                winner = state
+            else:
+                others.append(state)
+
+    if winner is None:
+        typer.secho("no candidate shipped", fg="red")
+        return None
+    typer.secho(f"\n🏁 winner: {winner.work_branch} (run {winner.run_id})", fg="green", bold=True)
+    # Losers' branches are extra; drop them so only the winner remains.
+    for state in others:
+        if state.work_branch and state.work_branch != winner.work_branch:
+            from adw.nodes import git_ops
+
+            if state.worktree:
+                git_ops.remove_worktree(repo, Path(state.worktree))
+            git_ops.delete_branch(repo, state.work_branch)
+    return winner
 
 
 def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> None:
@@ -125,6 +190,7 @@ def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> N
         gate = config.gates[name]
         typer.echo(f"  {name:<10} $ {gate.command}  (timeout {gate.timeout}s)")
     typer.echo(f"max fix iterations: {config.workflow.max_fix_iterations}")
+    typer.echo(f"isolation: {config.isolation.type}")
     typer.echo(f"ship: branch_prefix={config.ship.branch_prefix} create_pr={config.ship.create_pr}")
 
 
@@ -227,6 +293,7 @@ def resume(
     )
     outcome = get_workflow(state.workflow).run(ctx)
     _report(state, outcome, run_dir)
+    _cleanup_isolation(state)
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
@@ -341,14 +408,44 @@ def queue_list(repo: Path = REPO_OPT) -> None:
             typer.echo(f"  p{ticket.priority} [{ticket.workflow}] {ticket.title}")
 
 
+def _process_ticket(
+    ticket: ticket_mod.Ticket, repo: Path, auto_approve_plan: bool, yes: bool
+) -> rs.RunState:
+    target_repo = ticket.repo or repo
+    typer.secho(f"● ticket: {ticket.title} [{ticket.workflow}] -> {target_repo}", bold=True)
+    config = _load(target_repo)
+    workflow_name, task = ticket.workflow, ticket.task
+    if workflow_name == "auto":
+        routed = routing.route(task, config, target_repo)
+        workflow_name, task = routed.workflow, routed.task
+        typer.secho(f"  routed → {workflow_name} ({routed.method}): {routed.rationale}", fg="cyan")
+    state = _execute(workflow_name, task, target_repo, config, auto_approve_plan, yes)
+    ticket_mod.finish(ticket, repo, state.status, state.outcome_detail, state.run_id)
+    return state
+
+
 @queue_app.command("process")
 def queue_process(
     repo: Path = REPO_OPT,
     all_tickets: bool = typer.Option(False, "--all", help="Process until the queue is empty"),
+    parallel: int = typer.Option(1, help="Run N tickets concurrently (needs worktree isolation)"),
     auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 (plan approval)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip BOTH engineer gates"),
 ) -> None:
     """Claim the next ticket (or all) and run its workflow."""
+    if parallel > 1:
+        if not yes:
+            typer.secho("--parallel requires -y (gates can't be answered concurrently)", fg="red")
+            raise typer.Exit(2)
+        if _load(repo).isolation.type == "local":
+            typer.secho(
+                "--parallel needs isolation.type: worktree (or container) so runs don't collide",
+                fg="red",
+            )
+            raise typer.Exit(2)
+        _process_parallel(repo, parallel, auto_approve_plan, yes)
+        return
+
     processed = 0
     while True:
         ticket = ticket_mod.claim_next(repo)
@@ -356,21 +453,35 @@ def queue_process(
             if processed == 0:
                 typer.echo("queue is empty")
             break
-        target_repo = ticket.repo or repo
-        typer.secho(f"● ticket: {ticket.title} [{ticket.workflow}] -> {target_repo}", bold=True)
-        config = _load(target_repo)
-        workflow_name, task = ticket.workflow, ticket.task
-        if workflow_name == "auto":
-            routed = routing.route(task, config, target_repo)
-            workflow_name, task = routed.workflow, routed.task
-            typer.secho(
-                f"  routed → {workflow_name} ({routed.method}): {routed.rationale}", fg="cyan"
-            )
-        state = _execute(workflow_name, task, target_repo, config, auto_approve_plan, yes)
-        ticket_mod.finish(ticket, repo, state.status, state.outcome_detail, state.run_id)
+        _process_ticket(ticket, repo, auto_approve_plan, yes)
         processed += 1
         if not all_tickets:
             break
+
+
+def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bool) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    results: list[tuple[str, str]] = []
+
+    def worker() -> None:
+        while True:
+            ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
+            if ticket is None:
+                return
+            state = _process_ticket(ticket, repo, auto_approve_plan, yes)
+            results.append((ticket.title, state.status))
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(worker) for _ in range(workers)]:
+            future.result()
+
+    if not results:
+        typer.echo("queue is empty")
+        return
+    typer.secho(f"\nprocessed {len(results)} tickets:", bold=True)
+    for title, status in results:
+        typer.secho(f"  {status:<9} {title}", fg=_STATUS_COLOR.get(status, "white"))
 
 
 @app.command("_agent", hidden=True)

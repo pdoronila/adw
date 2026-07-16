@@ -8,6 +8,8 @@ owns the two human gates.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 from adw import human, prompts
@@ -54,15 +56,41 @@ def _done(ctx: WorkflowContext, step_name: str) -> bool:
     return ctx.state.step(step_name).status in ("ok", "skipped")
 
 
+def _discard_work(ctx: WorkflowContext) -> None:
+    """Throw away the work branch (and worktree) — used when the plan is rejected."""
+    state = ctx.state
+    if state.worktree:
+        main = Path(state.repo)
+        git_ops.remove_worktree(main, Path(state.worktree))
+        git_ops.delete_branch(main, state.work_branch)
+    else:
+        git_ops.checkout(ctx.repo_dir, state.base_branch)
+        git_ops.delete_branch(ctx.repo_dir, state.work_branch)
+
+
 def start_branch(ctx: WorkflowContext) -> None:
+    """Create the work branch (and, under worktree isolation, a dedicated worktree).
+
+    Repoints ctx.repo_dir to the worktree so every later step operates in isolation.
+    """
     state = ctx.state
     if _done(ctx, "branch"):
-        git_ops.checkout(ctx.repo_dir, state.work_branch)  # resuming: branch already exists
+        if state.worktree:  # resuming: operate in the existing worktree
+            ctx.repo_dir = Path(state.worktree)
+        else:
+            git_ops.checkout(ctx.repo_dir, state.work_branch)
         return
     state.base_branch = git_ops.current_branch(ctx.repo_dir)
     state.work_branch = f"{ctx.config.ship.branch_prefix}{state.run_id}"
     state.start_step("branch")
-    git_ops.create_branch(ctx.repo_dir, state.work_branch)
+    if ctx.config.isolation.type == "worktree":
+        worktree = ctx.repo_dir / ctx.config.isolation.worktrees_dir / state.run_id
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        git_ops.add_worktree(ctx.repo_dir, worktree, state.work_branch, state.base_branch)
+        state.worktree = str(worktree)
+        ctx.repo_dir = worktree
+    else:
+        git_ops.create_branch(ctx.repo_dir, state.work_branch)
     state.end_step("branch", "ok", state.work_branch)
     save_state(state, ctx.run_dir)
 
@@ -140,8 +168,7 @@ def approve_gate(
             ],
         )
     if decision != "approve":
-        git_ops.checkout(ctx.repo_dir, state.base_branch)
-        git_ops.delete_branch(ctx.repo_dir, state.work_branch)
+        _discard_work(ctx)
         state.status = "rejected"
         state.pending_gate = None
         state.end_step("approve", "failed", "rejected")

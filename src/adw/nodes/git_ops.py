@@ -88,6 +88,16 @@ def commit_all(repo: Path, message: str) -> str:
     return _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
+def add_worktree(repo: Path, path: Path, branch: str, base: str) -> None:
+    """Create a new worktree at `path` on a fresh `branch` off `base`."""
+    _git(repo, "worktree", "add", "-b", branch, str(path), base)
+
+
+def remove_worktree(repo: Path, path: Path) -> None:
+    """Remove a worktree (the branch and its commits remain)."""
+    _git(repo, "worktree", "remove", "--force", str(path), check=False)
+
+
 def create_pr(repo: Path, title: str, body: str) -> str:
     proc = subprocess.run(
         ["gh", "pr", "create", "--title", title, "--body", body],

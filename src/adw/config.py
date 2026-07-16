@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -46,6 +46,18 @@ class WorkflowConfig(StrictModel):
 class ShipConfig(StrictModel):
     branch_prefix: str = "adw/"
     create_pr: bool = False
+
+
+class IsolationConfig(StrictModel):
+    # local: work in the main tree (default). worktree: a git worktree per run.
+    # container: an Apple `container` per run (see ContainerEnv).
+    type: Literal["local", "worktree", "container"] = "local"
+    worktrees_dir: str = ".adw/worktrees"
+    # container-only knobs (used when type == container)
+    image: str = "adw-sandbox"
+    binary: str = "container"
+    secrets: list[str] = Field(default_factory=lambda: ["ANTHROPIC_API_KEY"])
+    workdir: str = "/work"
 
 
 class BackendOpts(StrictModel):
@@ -96,6 +108,7 @@ class AdwConfig(StrictModel):
     workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
     ship: ShipConfig = Field(default_factory=ShipConfig)
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
+    isolation: IsolationConfig = Field(default_factory=IsolationConfig)
     # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
     experts: dict[str, str] = Field(default_factory=dict)
 
