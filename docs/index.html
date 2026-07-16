@@ -223,7 +223,7 @@
     </p>
     <div class="diagram-scroll fade">
       <svg class="pipeline" viewBox="0 0 700 880" role="img"
-           aria-label="Vertical pipeline: task, preflight, branch, scout, plan, approve plan, build, gate loop, review, final review, ship, shipped. Gate-loop failures loop back into the build session.">
+           aria-label="Vertical pipeline: task, preflight, branch, scout, plan, approve plan, build, gate loop, review loop, final review, ship, shipped. Gate failures loop back into the build session on the right; review concerns loop back to build (revise) on the left.">
         <defs>
           <marker id="a-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
@@ -233,6 +233,9 @@
           </marker>
           <marker id="a-fail" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--fail)"/>
+          </marker>
+          <marker id="a-agent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--agent)"/>
           </marker>
         </defs>
 
@@ -250,11 +253,15 @@
           <line x1="270" y1="790" x2="270" y2="808" stroke="var(--muted)" stroke-width="2" marker-end="url(#a-muted)"/>
           <path d="M400,547 H560 Q574,547 574,533 V489 Q574,475 560,475 H400"
                 stroke="var(--fail)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a-fail)"/>
+          <path d="M140,619 H86 Q72,619 72,605 V489 Q72,475 86,475 H140"
+                stroke="var(--agent)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a-agent)"/>
         </g>
 
-        <text class="loop-label" x="588" y="505" fill="var(--fail)">fail →</text>
-        <text class="loop-label" x="588" y="521" fill="var(--fail)">resume S</text>
+        <text class="loop-label" x="588" y="505" fill="var(--fail)">gate fails →</text>
+        <text class="loop-label" x="588" y="521" fill="var(--fail)">resume build S</text>
         <text class="flow-label" x="284" y="588" fill="var(--pass)">all pass ↓</text>
+        <text class="loop-label" x="10" y="545" fill="var(--agent)">concerns</text>
+        <text class="loop-label" x="10" y="561" fill="var(--agent)">→ revise</text>
 
         <!-- 1 Task -->
         <g>
@@ -324,8 +331,8 @@
         <g>
           <text class="ord" x="122" y="624" text-anchor="end">9</text>
           <rect x="140" y="592" width="260" height="54" rx="9" fill="var(--agent-tint)" stroke="var(--agent)" stroke-width="1.5"/>
-          <text class="node-title" x="158" y="615">Review</text>
-          <text class="node-sub" x="158" y="632">fresh session · advisory report</text>
+          <text class="node-title" x="158" y="615">Review loop</text>
+          <text class="node-sub" x="158" y="632">fresh session · concerns → revise</text>
           <text class="node-kind" x="382" y="613" text-anchor="end" fill="var(--agent)">agent · read-only</text>
         </g>
         <!-- 10 Final review -->
@@ -355,10 +362,12 @@
       </svg>
     </div>
     <div class="note">
-      <b>The loop is the point.</b> When a gate fails, adw feeds the truncated failure output back to the build
-      agent <b>on the same session id</b> — so it never loses context — and re-runs every gate. This repeats up to
-      <code>max_fix_iterations</code> (default 3). Review always runs on a <b>fresh</b> session, so it reviews with
-      unbiased eyes.
+      <b>Two loops, not one.</b> When a <span style="color:var(--fail)">gate fails</span>, adw feeds the truncated
+      failure back to the build agent <b>on the same session</b> and re-runs every gate (up to
+      <code>max_fix_iterations</code>). Review runs on a <b>fresh</b> session for unbiased eyes — and when it returns
+      <span style="color:var(--agent)">VERDICT: concerns</span>, those findings loop back into the build session for a
+      <b>revise</b> round (re-gated, re-reviewed, up to <code>max_review_iterations</code>) before the human final gate.
+      Deterministic gates catch mechanical failures; a fresh-eyes agent catches semantic ones.
     </div>
   </section>
 
@@ -524,6 +533,20 @@ adw resume &lt;id&gt; --approve</code>
         <p>Each run in its own git worktree; drain a queue N-at-a-time; race N candidates, first-green-wins; or run agents inside an Apple container.</p>
         <code class="cmd">adw queue process --parallel 3
 adw run hotfix … --race 3</code>
+      </div>
+      <div class="cap code">
+        <p class="k">per-run control</p>
+        <h3>Overrides</h3>
+        <p>Swap the model, backend, or isolation for a single run without touching <code>adw.yaml</code> — a cheap sonnet chore, or a one-off sandboxed run.</p>
+        <code class="cmd">adw run … --model sonnet
+adw run … --isolation container</code>
+      </div>
+      <div class="cap pass">
+        <p class="k">operate</p>
+        <h3>Inspect &amp; recover</h3>
+        <p>Read a run's timeline, transcripts, and gate results; resume a failed run from the step it died on; ship opens a PR that degrades gracefully with no remote.</p>
+        <code class="cmd">adw logs &lt;id&gt;
+adw retry &lt;id&gt;</code>
       </div>
     </div>
     <div class="note">
