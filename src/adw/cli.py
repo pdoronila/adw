@@ -439,8 +439,25 @@ def ticket_new(
 
 
 @queue_app.command("list")
-def queue_list(repo: Path = REPO_OPT) -> None:
+def queue_list(
+    repo: Path = REPO_OPT,
+    json_output: bool = typer.Option(False, "--json", help="Print all tickets as JSON."),
+) -> None:
     """Show tickets in every state."""
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    state: [
+                        {"workflow": t.workflow, "title": t.title, "priority": t.priority}
+                        for t in ticket_mod.list_tickets(repo, state)
+                    ]
+                    for state in ticket_mod.STATES
+                },
+                indent=2,
+            )
+        )
+        return
     for state in ticket_mod.STATES:
         entries = ticket_mod.list_tickets(repo, state)
         typer.secho(f"{state} ({len(entries)})", bold=True)
