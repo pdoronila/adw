@@ -1,24 +1,26 @@
 # adw operating on itself — the system that builds the system.
-# NOTE: temporary settings for a container dogfood run (sonnet + container +
-# create_pr off + longer timeouts). Reverted after the run.
 version: 1
 
 gates:
-  lint:      {command: "uv run ruff check .", timeout: 300}
-  typecheck: {command: "uv run mypy", timeout: 600}
-  test:      {command: "uv run pytest -x -q", timeout: 1200}
+  lint:      {command: "uv run ruff check .", timeout: 120}
+  typecheck: {command: "uv run mypy", timeout: 300}
+  test:      {command: "uv run pytest -x -q", timeout: 900}
 
 agents:
-  default: {backend: claude-code, model: sonnet}   # Max-plan OAuth covers sonnet in-container
+  default: {backend: claude-code, model: opus}
+  roles:
+    plan:   {backend: claude-code, model: fable}
+    build:  {backend: claude-code, model: opus}
+    review: {backend: claude-code, model: opus}
 
 workflow:
   max_fix_iterations: 3
   gate_order: [lint, typecheck, test]
 
-# Run each step's agent + gates inside an Apple container (VM-level isolation).
+# Each run in its own git worktree; use `--isolation container` per-run for a VM.
 isolation:
-  type: container
+  type: worktree
 
 ship:
   branch_prefix: "adw/"
-  create_pr: false   # avoid the branch-push step during the dogfood run
+  create_pr: true
