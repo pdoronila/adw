@@ -206,10 +206,24 @@ def route(
     run: bool = typer.Option(False, help="Run the chosen workflow instead of just printing it"),
     auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 when --run"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip both engineer gates when --run"),
+    json_output: bool = typer.Option(False, "--json", help="Print the routing result as JSON."),
 ) -> None:
     """Classify a request into the right workflow (the factory router)."""
     config = _load(repo)
     result = routing.route(task, config, repo)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "workflow": result.workflow,
+                    "task": result.task,
+                    "rationale": result.rationale,
+                    "method": result.method,
+                },
+                indent=2,
+            )
+        )
+        return
     typer.secho(f"→ {result.workflow}  ({result.method})", fg="cyan", bold=True)
     typer.echo(f"  rationale: {result.rationale}")
     if result.task != task:
