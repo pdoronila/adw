@@ -9,7 +9,7 @@ from pathlib import Path
 
 import typer
 
-from adw import __version__
+from adw import __version__, routing
 from adw.adapters import ADAPTERS, get_adapter
 from adw.adapters.base import AgentInvocation
 from adw.config import AdwConfig, load_config
@@ -108,6 +108,28 @@ def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> N
         typer.echo(f"  {name:<10} $ {gate.command}  (timeout {gate.timeout}s)")
     typer.echo(f"max fix iterations: {config.workflow.max_fix_iterations}")
     typer.echo(f"ship: branch_prefix={config.ship.branch_prefix} create_pr={config.ship.create_pr}")
+
+
+@app.command()
+def route(
+    task: str = typer.Argument(help="Ticket / request in plain language"),
+    repo: Path = REPO_OPT,
+    run: bool = typer.Option(False, help="Run the chosen workflow instead of just printing it"),
+    auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 when --run"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip both engineer gates when --run"),
+) -> None:
+    """Classify a request into the right workflow (the factory router)."""
+    config = _load(repo)
+    result = routing.route(task, config, repo)
+    typer.secho(f"→ {result.workflow}  ({result.method})", fg="cyan", bold=True)
+    typer.echo(f"  rationale: {result.rationale}")
+    if result.task != task:
+        typer.echo(f"  refined task: {result.task}")
+    if not run:
+        typer.echo(f"\nrun it: adw run {result.workflow} {result.task!r} --repo {repo}")
+        return
+    state = _execute(result.workflow, result.task, repo, config, auto_approve_plan, yes)
+    raise typer.Exit(0 if state.status == "shipped" else 1)
 
 
 @app.command()
@@ -227,14 +249,15 @@ def init(
 @ticket_app.command("new")
 def ticket_new(
     title: str = typer.Argument(help="Ticket title"),
-    workflow: str = typer.Option("feature", help="Workflow to run for this ticket"),
+    workflow: str = typer.Option("feature", help="Workflow, or 'auto' to route at process time"),
     priority: int = typer.Option(ticket_mod.DEFAULT_PRIORITY, help="Lower runs sooner"),
     body: str = typer.Option("", help="Ticket body (plain language task description)"),
     edit: bool = typer.Option(False, help="Open the ticket in $EDITOR after creating"),
     repo: Path = REPO_OPT,
 ) -> None:
     """Create a ticket in the queue."""
-    get_workflow(workflow)  # validate name early
+    if workflow != "auto":
+        get_workflow(workflow)  # validate name early ('auto' resolves at process time)
     path = ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=priority)
     typer.echo(f"created {path}")
     if edit:
@@ -271,7 +294,14 @@ def queue_process(
         target_repo = ticket.repo or repo
         typer.secho(f"● ticket: {ticket.title} [{ticket.workflow}] -> {target_repo}", bold=True)
         config = _load(target_repo)
-        state = _execute(ticket.workflow, ticket.task, target_repo, config, auto_approve_plan, yes)
+        workflow_name, task = ticket.workflow, ticket.task
+        if workflow_name == "auto":
+            routed = routing.route(task, config, target_repo)
+            workflow_name, task = routed.workflow, routed.task
+            typer.secho(
+                f"  routed → {workflow_name} ({routed.method}): {routed.rationale}", fg="cyan"
+            )
+        state = _execute(workflow_name, task, target_repo, config, auto_approve_plan, yes)
         ticket_mod.finish(ticket, repo, state.status, state.outcome_detail, state.run_id)
         processed += 1
         if not all_tickets:

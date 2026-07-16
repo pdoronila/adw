@@ -163,6 +163,24 @@ adw queue process --all -y   # drain the queue unattended
 
 Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended.
 
+## Factory router
+
+Don't want to pick the workflow by hand? The router classifies a request and chooses one:
+
+```bash
+adw route "checkout 500s in prod on empty cart"     # → hotfix
+adw route "bump pydantic and fix breakages"          # → chore
+adw route "add CSV export to reports"                # → feature
+adw route "..." --run -y                             # classify AND run it
+```
+
+A read-only agent glances at the repo and returns the workflow + a refined task; if the agent is unavailable or returns junk, it falls back to deterministic keyword matching, so routing never hard-fails. File a ticket with `--workflow auto` and `queue process` routes it at claim time:
+
+```bash
+adw ticket new "login is broken for SSO users" --workflow auto
+adw queue process        # → routed → bug (agent): ...
+```
+
 ## Design rules (from the thesis)
 
 - **Separate code from agents.** Orchestration, gates, and git are plain code — fast, free, deterministic. Agents only do the fuzzy work (plan, build, fix, review).
