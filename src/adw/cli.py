@@ -338,6 +338,54 @@ def status(
 
 
 @app.command()
+def logs(
+    run_id: str = typer.Argument(help="Run id to inspect"),
+    repo: Path = REPO_OPT,
+    tail: int = typer.Option(500, "--tail", help="Max characters of each agent output to show"),
+) -> None:
+    """Pretty-print one run's step timeline, agent transcripts, and gate results."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+
+    typer.secho(
+        f"■ {run_id}  [{state.workflow}]  {state.status}",
+        fg=_STATUS_COLOR.get(state.status, "white"),
+        bold=True,
+    )
+    typer.echo(f"  task: {state.task}")
+
+    typer.secho("\nsteps:", bold=True)
+    for step in state.steps:
+        typer.echo(f"  {step.status:<8} {step.name:<24} {step.detail}")
+
+    typer.secho("\nagents:", bold=True)
+    agent_dir = run_dir / "agent"
+    for path in sorted(agent_dir.glob("*.json")) if agent_dir.is_dir() else []:
+        artifact = json.loads(path.read_text())
+        cost = artifact.get("cost_usd") or 0.0
+        role, model = artifact.get("role"), artifact.get("model")
+        typer.echo(f"  {path.stem}  role={role} model={model} cost=${cost:.2f}")
+        output = (artifact.get("output") or "")[:tail]
+        for line in output.splitlines() or [""]:
+            typer.echo(f"    {line}")
+
+    typer.secho("\ngates:", bold=True)
+    for round_ in state.gate_results:
+        attempt = round_.get("attempt")
+        results = round_.get("results")
+        for result in results if isinstance(results, list) else []:
+            mark = "✓" if result.get("ok") else "✗"
+            name, exit_code = result.get("name"), result.get("exit_code")
+            typer.echo(f"  attempt {attempt}  {mark} {name} (exit {exit_code})")
+
+    typer.echo(f"\ntotal cost: ${state.total_cost_usd:.2f}")
+    typer.echo(f"artifacts: {run_dir}")
+
+
+@app.command()
 def resume(
     run_id: str = typer.Argument(help="Run id from a paused (--async) run"),
     repo: Path = REPO_OPT,

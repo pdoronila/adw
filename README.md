@@ -115,6 +115,7 @@ adw run feature "..." --model opus              # override the model for every r
 adw run feature "..." --backend codex            # override the backend for every role, this run only
 adw run feature "..." --isolation worktree       # override isolation.type for this run
 adw status                              # list runs; adw status <run-id> for detail
+adw logs <run-id>                       # pretty-print one run's steps, agent transcripts, and gate results
 ```
 
 ### Available workflows
@@ -154,7 +155,7 @@ What `adw run feature` does:
 8. **Engineer gate 2** — diff summary + review → ship or reject
 9. **Ship** *(code)* — commit on the work branch, optional `gh pr create`
 
-Every run leaves a full artifact trail in the target repo under `.adw/runs/<run-id>/`: `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`.
+Every run leaves a full artifact trail in the target repo under `.adw/runs/<run-id>/`: `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`. Run `adw logs <run-id>` to pretty-print all of this in one place (`--tail N` controls how much of each agent's output is shown, default 500 chars).
 
 ## Ticket queue
 
