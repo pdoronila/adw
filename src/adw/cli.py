@@ -390,6 +390,48 @@ def resume(
 
 
 @app.command()
+def retry(
+    run_id: str = typer.Argument(help="Run id of a failed run"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Retry a failed run from where it failed."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+    if state.status != "failed":
+        typer.secho(f"run {run_id} is not failed (status={state.status})", fg="red")
+        raise typer.Exit(1)
+
+    state.status = "running"
+    state.outcome_detail = ""
+    for record in state.steps:
+        if record.status == "failed":
+            record.status = "pending"
+    rs.save_state(state, run_dir)
+
+    target_repo = Path(state.repo)
+    config = _load(target_repo)
+    env = make_env(config)
+    ctx = WorkflowContext(
+        repo_dir=target_repo,
+        run_dir=run_dir,
+        config=config,
+        state=state,
+        task=state.task,
+        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env),
+        mode="async",
+        env=env,
+    )
+    typer.secho(f"▶ retry {run_id} [{state.workflow}]", bold=True)
+    outcome = get_workflow(state.workflow).run(ctx)
+    _report(state, outcome, run_dir)
+    _cleanup_isolation(state)
+    raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
+
+
+@app.command()
 def doctor(repo: Path = REPO_OPT) -> None:
     """Check backends, config, and gates for this repo."""
     failures = 0

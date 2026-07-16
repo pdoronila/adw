@@ -115,6 +115,7 @@ adw run feature "..." --model opus              # override the model for every r
 adw run feature "..." --backend codex            # override the backend for every role, this run only
 adw run feature "..." --isolation worktree       # override isolation.type for this run
 adw status                              # list runs; adw status <run-id> for detail
+adw retry <run-id>                      # re-run a failed run from where it failed
 ```
 
 ### Available workflows
@@ -203,6 +204,14 @@ adw resume 20260716-... --edit               # edit the plan/diff, then approve
 
 Resuming replays the workflow from its checkpoint: completed steps are skipped (no agent re-invocation — the plan, build session, and gate results are all persisted), and only the pending gate advances. This is what lets the queue run many tickets without a human babysitting each one.
 
+If a run fails (a gate never passes, an agent errors out), retry it after fixing whatever caused the failure (config, gate script, flaky dependency) — no need to start over:
+
+```bash
+adw retry 20260716-...                       # re-runs from the failed step; completed steps are skipped
+```
+
+Like resume, retry skips every step already marked `ok`/`skipped` and only re-executes the failed step and everything after it.
+
 ## Isolation, parallelism & racing
 
 By default a run works on a branch in the main tree (`isolation.type: local`). Set `isolation.type: worktree` and each run gets its own **git worktree** — so runs don't trip over each other and can go concurrently:
@@ -221,7 +230,7 @@ isolation:
   adw run hotfix "checkout 500s on empty cart" --race 3
   ```
 
-Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage.
+Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage — `adw retry <run-id>` is how you re-drive it.
 
 ### Container sandboxes (Apple `container`)
 
