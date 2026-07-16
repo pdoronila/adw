@@ -234,7 +234,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 adw run chore "..." --repo . 
 ```
 
-**Auth** is the key detail: the macOS keychain doesn't cross into a Linux VM, so there's no interactive login inside the container. Instead adw forwards the named `secrets` as `-e NAME` (the host value passes through), and in `-p` mode Claude Code authenticates directly from `ANTHROPIC_API_KEY`. Use `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) to bill against a Pro/Max/Team plan instead of the API; `OPENAI_API_KEY` for codex; provider keys for opencode. `adw doctor` reports whether the `container` binary and each secret are present.
+Container isolation composes with a per-run **worktree** (git state stays isolated per run), so `--parallel N` and `--race N` work with containers too — each candidate is its own VM mounting its own worktree.
+
+**Auth** is the key detail: the macOS keychain doesn't cross into a Linux VM, so there's no interactive login inside the container. Instead adw forwards the named `secrets` as `-e NAME` (only those actually set on the host), and in `-p` mode Claude Code authenticates directly. For a **Max/Pro subscription**, run `claude setup-token` once and `export CLAUDE_CODE_OAUTH_TOKEN=…` — adw forwards it and usage bills your plan (no API charge). `ANTHROPIC_API_KEY` uses the API instead; `OPENAI_API_KEY` for codex; provider keys for opencode. `adw doctor` reports whether the `container` binary and each secret are present.
 
 The image is defined by a Dockerfile shipped with adw (`adw sandbox build` uses it; drop a `sandbox/Dockerfile` in your repo to override). Add or remove agent CLIs there to match the backends your `adw.yaml` uses.
 

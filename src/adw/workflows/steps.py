@@ -83,7 +83,10 @@ def start_branch(ctx: WorkflowContext) -> None:
     state.base_branch = git_ops.current_branch(ctx.repo_dir)
     state.work_branch = f"{ctx.config.ship.branch_prefix}{state.run_id}"
     state.start_step("branch")
-    if ctx.config.isolation.type == "worktree":
+    # worktree AND container isolation both get a per-run worktree so git state is
+    # isolated (parallel-safe); container additionally runs agents/gates in a VM
+    # that mounts that worktree.
+    if ctx.config.isolation.type in ("worktree", "container"):
         worktree = ctx.repo_dir / ctx.config.isolation.worktrees_dir / state.run_id
         worktree.parent.mkdir(parents=True, exist_ok=True)
         git_ops.add_worktree(ctx.repo_dir, worktree, state.work_branch, state.base_branch)

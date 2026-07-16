@@ -7,6 +7,7 @@ agent and gate commands are routed into a sandbox.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Protocol
@@ -55,7 +56,8 @@ class ContainerEnv:
         wd = self.cfg.workdir
         cmd = [self.cfg.binary, "run", "--rm", "-v", f"{cwd}:{wd}", "-w", wd]
         for secret in self.cfg.secrets:
-            cmd += ["-e", secret]  # forwards the host env value of `secret`
+            if os.environ.get(secret):  # forward only secrets set on the host
+                cmd += ["-e", secret]
         cmd.append(self.cfg.image)
         return cmd + argv
 

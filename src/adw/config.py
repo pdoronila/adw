@@ -56,7 +56,12 @@ class IsolationConfig(StrictModel):
     # container-only knobs (used when type == container)
     image: str = "adw-sandbox"
     binary: str = "container"
-    secrets: list[str] = Field(default_factory=lambda: ["ANTHROPIC_API_KEY"])
+    # Forwarded into the container as `-e NAME` (host value). Whichever are set
+    # authenticate the in-container agent; CLAUDE_CODE_OAUTH_TOKEN bills a Max/Pro
+    # plan, ANTHROPIC_API_KEY the API. Only names present in the host env are sent.
+    secrets: list[str] = Field(
+        default_factory=lambda: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"]
+    )
     workdir: str = "/work"
 
 

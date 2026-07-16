@@ -16,7 +16,9 @@ def test_make_env_selects_by_isolation() -> None:
     assert isinstance(make_env(container), ContainerEnv)
 
 
-def test_container_wraps_argv_with_mount_and_secrets() -> None:
+def test_container_wraps_argv_with_mount_and_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-xxx")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-xxx")
     cfg = AdwConfig.model_validate(
         {
             "isolation": {
@@ -34,6 +36,17 @@ def test_container_wraps_argv_with_mount_and_secrets() -> None:
     assert wrapped[7:11] == ["-e", "ANTHROPIC_API_KEY", "-e", "OPENAI_API_KEY"]
     assert wrapped[11] == "adw-sandbox"
     assert wrapped[12:] == ["claude", "-p", "hi"]
+
+
+def test_container_skips_unset_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-xxx")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    cfg = AdwConfig.model_validate(
+        {"isolation": {"type": "container", "secrets": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]}}
+    ).isolation
+    wrapped = ContainerEnv(cfg)._wrap(["claude"], Path("/repo"))
+    assert "ANTHROPIC_API_KEY" in wrapped
+    assert "OPENAI_API_KEY" not in wrapped  # unset -> not forwarded
 
 
 def test_container_wraps_shell() -> None:
