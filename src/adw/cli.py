@@ -232,6 +232,7 @@ def workflows() -> None:
 def status(
     run_id: str = typer.Argument(None),
     repo: Path = REPO_OPT,
+    json_output: bool = typer.Option(False, "--json", help="Print the runs list as JSON."),
 ) -> None:
     """Show recent runs, or full detail for one run."""
     if run_id:
@@ -242,6 +243,23 @@ def status(
         typer.echo(json.dumps(json.loads((run_dir / "state.json").read_text()), indent=2))
         return
     states = rs.list_runs(repo)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "run_id": state.run_id,
+                        "workflow": state.workflow,
+                        "status": state.status,
+                        "total_cost_usd": state.total_cost_usd,
+                        "outcome_detail": state.outcome_detail,
+                    }
+                    for state in states[-20:]
+                ],
+                indent=2,
+            )
+        )
+        return
     if not states:
         typer.echo("no runs yet")
         return
