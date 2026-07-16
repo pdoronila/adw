@@ -23,4 +23,4 @@ isolation:
 
 ship:
   branch_prefix: "adw/"
-  create_pr: false   # off until ship degrades gracefully when the branch has no remote
+  create_pr: true   # safe now: ship pushes the branch + opens a PR, or degrades gracefully
