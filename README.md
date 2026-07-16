@@ -240,6 +240,39 @@ Container isolation composes with a per-run **worktree** (git state stays isolat
 
 The image is defined by a Dockerfile shipped with adw (`adw sandbox build` uses it; drop a `sandbox/Dockerfile` in your repo to override). Add or remove agent CLIs there to match the backends your `adw.yaml` uses.
 
+## Dogfooding adw on adw
+
+adw builds features into its own repo — it's the fastest way to exercise the tool. Install it editable so runs pick up source changes with no reinstall (`uv tool install --editable .`), then work at the altitude the change deserves.
+
+**One feature, reviewed at both gates.** Interactive runs block at the engineer gates; drive them with `--async` instead and answer each gate on your own time:
+
+```bash
+adw run feature "add a --json flag to adw status" --async   # runs scout+plan, then pauses
+# review .adw/runs/<id>/plan.md, then:
+adw resume <id> --approve                                    # build+gates+review, pauses at final
+# review the diff (adw status <id>) + .adw/runs/<id>/review.md, then:
+adw resume <id> --approve                                    # ships to branch adw/<id>
+```
+
+**A batch, unattended.** File tickets and run several at once, each in its own worktree (gates still enforce; there's no human gate in `--parallel`):
+
+```yaml
+# adw.yaml
+isolation: {type: worktree}
+```
+```bash
+adw ticket new "route --json flag"      --body "..."
+adw ticket new "queue list --json flag" --body "..."
+adw ticket new "workflows --json flag"  --body "..."
+adw queue process --all --parallel 3 -y
+```
+
+**Sandboxed.** Set `isolation: {type: container}` and each run's agent + gates execute inside an Apple container (VM-level isolation, nothing touches your host) — composes with worktrees, so `--parallel` still works. Use it for untrusted changes or large fan-outs.
+
+**It never touches `main`.** Every run commits on `adw/<run-id>` and stops. Review the branch (`git diff main..adw/<id>`) or, with `ship.create_pr: true` (+ a GitHub remote), let each run open its own PR. Merge only on approval; `git branch -D adw/<id>` to discard.
+
+**Editing its own source is safe.** The running `adw` process loads its code once at start, so a run that rewrites `steps.py` won't destabilize itself mid-flight — the change applies on the next invocation.
+
 ## Design rules (from the thesis)
 
 - **Separate code from agents.** Orchestration, gates, and git are plain code — fast, free, deterministic. Agents only do the fuzzy work (plan, build, fix, review).
