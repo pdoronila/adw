@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Runs</h2>
+  {% if runs %}
+  <table class="runs">
+    <thead>
+      <tr><th>run</th><th>workflow</th><th>status</th><th class="num">cost</th><th>updated</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}{% include "_run_row.html" %}{% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">no runs yet</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Start a run</h2>
+  <form class="stack" method="post" action="/runs">
+    <label>workflow
+      <select name="workflow">
+        {% for name, desc in workflows %}
+        <option value="{{ name }}">{{ name }} — {{ desc }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>task
+      <textarea name="task" rows="3" placeholder="What to do, in plain language" required></textarea>
+    </label>
+    <div class="row">
+      <label>model <input type="text" name="model" placeholder="(default)"></label>
+      <label>backend <input type="text" name="backend" placeholder="(default)"></label>
+      <label>isolation <input type="text" name="isolation" placeholder="(default)"></label>
+    </div>
+    <button type="submit">Start run</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Tickets</h2>
+  <div class="board">
+    {% for state in ticket_states %}
+    <div class="board-col">
+      <h3>{{ state }} ({{ board[state]|length }})</h3>
+      {% for ticket in board[state] %}
+      <div class="ticket">
+        <div class="ticket-title">{{ ticket.title }}</div>
+        <div class="muted">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
+      </div>
+      {% else %}
+      <p class="muted">—</p>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <form class="row" method="post" action="/queue/process">
+    <button type="submit">Process queue</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>New ticket</h2>
+  <form class="stack" method="post" action="/tickets">
+    <label>title <input type="text" name="title" required></label>
+    <label>body <textarea name="body" rows="3"></textarea></label>
+    <div class="row">
+      <label>workflow
+        <select name="workflow">
+          {% for name, desc in workflows %}
+          <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>priority <input type="number" name="priority" value="5"></label>
+    </div>
+    <button type="submit">Create ticket</button>
+  </form>
+</section>
+{% endblock %}

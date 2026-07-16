@@ -1,0 +1,11 @@
+<ul class="timeline" id="timeline-list">
+  {% for step in state.steps %}
+  <li class="timeline-step">
+    <span class="pill pill-step-{{ step.status }}">{{ step.status }}</span>
+    <span class="step-name">{{ step.name }}</span>
+    {% if step.detail %}<span class="step-detail muted">{{ step.detail }}</span>{% endif %}
+  </li>
+  {% else %}
+  <li class="muted">no steps yet</li>
+  {% endfor %}
+</ul>

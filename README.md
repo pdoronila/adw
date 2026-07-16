@@ -213,6 +213,17 @@ adw retry 20260716-...                       # re-runs from the failed step; com
 
 Like resume, retry skips every step already marked `ok`/`skipped` and only re-executes the failed step and everything after it.
 
+## Web UI
+
+A local dashboard gives you the same runs, tickets, and gates without the terminal. Install the extra (developers can just `uv sync`):
+
+```bash
+pip install 'adw[ui]'
+adw ui                    # serves http://localhost:8770 and opens your browser
+```
+
+It shows the runs table, the ticket board, and a live step timeline (streamed over SSE), with buttons to approve/reject paused runs, retry failed ones, start a run, file a ticket, and drain the queue. Actions shell out to the same `adw` CLI, detached. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
+
 ## Isolation, parallelism & racing
 
 By default a run works on a branch in the main tree (`isolation.type: local`). Set `isolation.type: worktree` and each run gets its own **git worktree** — so runs don't trip over each other and can go concurrently:
