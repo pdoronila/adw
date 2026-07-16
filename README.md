@@ -181,6 +181,22 @@ adw ticket new "login is broken for SSO users" --workflow auto
 adw queue process        # → routed → bug (agent): ...
 ```
 
+## Async runs (pause & resume)
+
+By default the engineer gates block the terminal. With `--async`, a run **pauses** at each gate and persists its state instead, so you can approve later (or from elsewhere):
+
+```bash
+adw run feature "add CSV export" --async     # runs scout+plan, then pauses
+# ■ paused: awaiting plan approval
+#   ↳ adw resume 20260716-... --approve   (or --reject)
+
+adw resume 20260716-... --approve            # build → gates → review, pauses at final
+adw resume 20260716-... --approve            # ships
+adw resume 20260716-... --edit               # edit the plan/diff, then approve
+```
+
+Resuming replays the workflow from its checkpoint: completed steps are skipped (no agent re-invocation — the plan, build session, and gate results are all persisted), and only the pending gate advances. This is what lets the queue run many tickets without a human babysitting each one.
+
 ## Design rules (from the thesis)
 
 - **Separate code from agents.** Orchestration, gates, and git are plain code — fast, free, deterministic. Agents only do the fuzzy work (plan, build, fix, review).

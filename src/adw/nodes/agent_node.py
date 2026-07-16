@@ -31,7 +31,9 @@ class AgentRunner:
         self.run_dir = run_dir
         self.workflow = workflow
         self._factory = adapter_factory or (lambda _role, backend: get_adapter(backend, config))
-        self._step = 0
+        # Continue transcript numbering across a resumed run.
+        agent_dir = run_dir / "agent"
+        self._step = len(list(agent_dir.glob("*.json"))) if agent_dir.is_dir() else 0
 
     def run(
         self,

@@ -21,11 +21,15 @@ class WorkflowContext:
     agents: AgentRunner
     auto_approve_plan: bool = False
     assume_yes: bool = False
+    # "interactive" blocks at human gates; "async" pauses and persists instead.
+    mode: Literal["interactive", "async"] = "interactive"
+    # A decision injected by `adw resume` for the one pending gate.
+    decision: Literal["approve", "reject"] | None = None
 
 
 @dataclass
 class RunOutcome:
-    status: Literal["shipped", "failed", "rejected"]
+    status: Literal["shipped", "failed", "rejected", "paused"]
     reason: str = ""
     hints: list[str] = field(default_factory=list)
 

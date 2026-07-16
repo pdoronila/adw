@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,7 @@ from adw.config import AdwConfig, load_config
 from adw.nodes.agent_node import AgentRunner
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
-from adw.workflows import WORKFLOWS, WorkflowContext, get_workflow
+from adw.workflows import WORKFLOWS, RunOutcome, WorkflowContext, get_workflow
 
 app = typer.Typer(
     help="AI Developer Workflows: code + agents + you, composed.", no_args_is_help=True
@@ -37,6 +38,24 @@ def _load(repo: Path) -> AdwConfig:
         raise typer.Exit(2) from exc
 
 
+_STATUS_COLOR = {
+    "shipped": "green",
+    "rejected": "yellow",
+    "failed": "red",
+    "paused": "cyan",
+}
+
+
+def _report(state: rs.RunState, outcome: RunOutcome, run_dir: Path) -> None:
+    color = _STATUS_COLOR[outcome.status]
+    typer.secho(f"■ {outcome.status}: {outcome.reason}", fg=color, bold=True)
+    for hint in outcome.hints:
+        typer.echo(f"  ↳ {hint}")
+    if state.total_cost_usd:
+        typer.echo(f"  agent cost: ${state.total_cost_usd:.2f}")
+    typer.echo(f"  artifacts: {run_dir}")
+
+
 def _execute(
     workflow_name: str,
     task: str,
@@ -44,6 +63,7 @@ def _execute(
     config: AdwConfig,
     auto_approve_plan: bool,
     assume_yes: bool,
+    async_mode: bool = False,
 ) -> rs.RunState:
     workflow = get_workflow(workflow_name)
     run_id = rs.new_run_id(task)
@@ -59,16 +79,11 @@ def _execute(
         agents=AgentRunner(config, run_dir, workflow=workflow_name),
         auto_approve_plan=auto_approve_plan,
         assume_yes=assume_yes,
+        mode="async" if async_mode else "interactive",
     )
     typer.secho(f"▶ run {run_id} [{workflow_name}] in {repo}", bold=True)
     outcome = workflow.run(ctx)
-    color = {"shipped": "green", "rejected": "yellow", "failed": "red"}[outcome.status]
-    typer.secho(f"■ {outcome.status}: {outcome.reason}", fg=color, bold=True)
-    for hint in outcome.hints:
-        typer.echo(f"  ↳ {hint}")
-    if state.total_cost_usd:
-        typer.echo(f"  agent cost: ${state.total_cost_usd:.2f}")
-    typer.echo(f"  artifacts: {run_dir}")
+    _report(state, outcome, run_dir)
     return state
 
 
@@ -79,6 +94,9 @@ def run(
     repo: Path = REPO_OPT,
     auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 (plan approval)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip BOTH engineer gates (unattended)"),
+    async_mode: bool = typer.Option(
+        False, "--async", help="Pause at engineer gates instead of blocking; resume later"
+    ),
     max_iterations: int | None = typer.Option(None, help="Override workflow.max_fix_iterations"),
     dry_run: bool = typer.Option(False, help="Print the resolved plan of execution and exit"),
 ) -> None:
@@ -89,8 +107,8 @@ def run(
     if dry_run:
         _print_dry_run(workflow, task, repo, config)
         return
-    state = _execute(workflow, task, repo, config, auto_approve_plan, yes)
-    raise typer.Exit(0 if state.status == "shipped" else 1)
+    state = _execute(workflow, task, repo, config, auto_approve_plan, yes, async_mode)
+    raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
 def _print_dry_run(workflow: str, task: str, repo: Path, config: AdwConfig) -> None:
@@ -161,6 +179,55 @@ def status(
             f"{state.run_id:<42} {state.workflow:<8} {state.status:<24} "
             f"${state.total_cost_usd:>6.2f}  {state.outcome_detail[:60]}"
         )
+
+
+@app.command()
+def resume(
+    run_id: str = typer.Argument(help="Run id from a paused (--async) run"),
+    repo: Path = REPO_OPT,
+    approve: bool = typer.Option(False, "--approve", help="Approve the pending gate"),
+    reject: bool = typer.Option(False, "--reject", help="Reject the pending gate"),
+    edit: bool = typer.Option(False, "--edit", help="Edit the pending artifact, then approve"),
+) -> None:
+    """Resume a paused run by answering its pending engineer gate."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+    if state.pending_gate is None or state.status not in (
+        "awaiting_plan_approval",
+        "awaiting_final_review",
+        "paused",
+    ):
+        typer.secho(f"run {run_id} is not paused (status={state.status})", fg="red")
+        raise typer.Exit(1)
+    if sum([approve, reject, edit]) != 1:
+        typer.secho("pass exactly one of --approve / --reject / --edit", fg="red")
+        raise typer.Exit(2)
+    if edit:
+        artifact = run_dir / ("plan.md" if state.pending_gate == "plan" else "review.md")
+        subprocess.run([os.environ.get("EDITOR", "vi"), str(artifact)])
+    decision = "reject" if reject else "approve"
+
+    target_repo = Path(state.repo)
+    config = _load(target_repo)
+    ctx = WorkflowContext(
+        repo_dir=target_repo,
+        run_dir=run_dir,
+        config=config,
+        state=state,
+        task=state.task,
+        agents=AgentRunner(config, run_dir, workflow=state.workflow),
+        mode="async",
+        decision=decision,  # type: ignore[arg-type]
+    )
+    typer.secho(
+        f"▶ resume {run_id} [{state.workflow}] {decision} {state.pending_gate} gate", bold=True
+    )
+    outcome = get_workflow(state.workflow).run(ctx)
+    _report(state, outcome, run_dir)
+    raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
 @app.command()
@@ -261,8 +328,6 @@ def ticket_new(
     path = ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=priority)
     typer.echo(f"created {path}")
     if edit:
-        import os
-
         subprocess.run([os.environ.get("EDITOR", "vi"), str(path)])
 
 

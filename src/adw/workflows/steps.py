@@ -33,7 +33,10 @@ def preflight(ctx: WorkflowContext, *, require_clean: bool = True) -> RunOutcome
     else:
         # Keep adw's own .adw/ artifacts out of status/diff/add from here on.
         git_ops.ensure_adw_ignored(ctx.repo_dir)
-        if require_clean and not git_ops.ensure_clean(ctx.repo_dir):
+        # Only require a clean tree on a fresh run — a resume legitimately carries
+        # the build's uncommitted work.
+        resuming = ctx.state.step("branch").status == "ok"
+        if require_clean and not resuming and not git_ops.ensure_clean(ctx.repo_dir):
             problems.append("working tree is not clean; commit or stash first")
     if not ctx.config.gates:
         problems.append("no gates configured in adw.yaml")
@@ -46,8 +49,16 @@ def preflight(ctx: WorkflowContext, *, require_clean: bool = True) -> RunOutcome
     return None
 
 
+def _done(ctx: WorkflowContext, step_name: str) -> bool:
+    """True if a step already completed — used to skip work when resuming a paused run."""
+    return ctx.state.step(step_name).status in ("ok", "skipped")
+
+
 def start_branch(ctx: WorkflowContext) -> None:
     state = ctx.state
+    if _done(ctx, "branch"):
+        git_ops.checkout(ctx.repo_dir, state.work_branch)  # resuming: branch already exists
+        return
     state.base_branch = git_ops.current_branch(ctx.repo_dir)
     state.work_branch = f"{ctx.config.ship.branch_prefix}{state.run_id}"
     state.start_step("branch")
@@ -70,6 +81,8 @@ def agent_doc(
     Writes the agent's final message to run_dir/out_name.
     """
     state = ctx.state
+    if _done(ctx, step_name):
+        return None  # resuming: the document is already on disk
     state.start_step(step_name)
     result = ctx.agents.run(
         role, prompt_text, cwd=ctx.repo_dir, step_name=step_name, read_only=read_only
@@ -84,27 +97,60 @@ def agent_doc(
     return None
 
 
+def _decide(ctx: WorkflowContext, *, kind: str, artifact_name: str) -> str | None:
+    """Return 'approve'/'reject', or None to pause (async mode with no decision).
+
+    Precedence: auto flags → a decision injected by `adw resume` → interactive
+    prompt (blocking) → pause (async).
+    """
+    if ctx.assume_yes or (kind == "plan" and ctx.auto_approve_plan):
+        return "approve"
+    if ctx.decision is not None:
+        decision, ctx.decision = ctx.decision, None  # consume it (answers one gate)
+        return decision
+    if ctx.mode == "async":
+        return None
+    if kind == "plan":
+        return human.approve_plan(ctx.run_dir / artifact_name)
+    summary = git_ops.diff_summary(ctx.repo_dir, ctx.state.base_branch)
+    return "approve" if human.final_review(summary, ctx.run_dir / artifact_name) else "reject"
+
+
 def approve_gate(
     ctx: WorkflowContext,
     artifact_name: str,
     *,
     reject_reason: str = "rejected by engineer",
 ) -> RunOutcome | None:
-    """Engineer gate 1: approve/edit/reject the document produced so far."""
+    """Engineer gate 1: approve/reject the document (pauses in async mode)."""
     state = ctx.state
-    state.status = "awaiting_plan_approval"
-    save_state(state, ctx.run_dir)
-    decision = human.approve_plan(
-        ctx.run_dir / artifact_name, auto=ctx.auto_approve_plan or ctx.assume_yes
-    )
+    if _done(ctx, "approve"):
+        return None  # already approved in a prior (paused) run
+    decision = _decide(ctx, kind="plan", artifact_name=artifact_name)
+    if decision is None:
+        state.status = "awaiting_plan_approval"
+        state.pending_gate = "plan"
+        save_state(state, ctx.run_dir)
+        return RunOutcome(
+            "paused",
+            "awaiting plan approval",
+            hints=[
+                f"review {ctx.run_dir / artifact_name}",
+                f"adw resume {state.run_id} --approve   (or --reject)",
+            ],
+        )
     if decision != "approve":
         git_ops.checkout(ctx.repo_dir, state.base_branch)
         git_ops.delete_branch(ctx.repo_dir, state.work_branch)
         state.status = "rejected"
+        state.pending_gate = None
+        state.end_step("approve", "failed", "rejected")
         state.outcome_detail = reject_reason
         save_state(state, ctx.run_dir)
         return RunOutcome("rejected", reject_reason)
+    state.end_step("approve", "ok")
     state.status = "running"
+    state.pending_gate = None
     save_state(state, ctx.run_dir)
     return None
 
@@ -118,6 +164,8 @@ def build(
 ) -> RunOutcome | None:
     """A write-access agent turn that starts THE session the gate loop resumes."""
     state = ctx.state
+    if _done(ctx, step_name):
+        return None  # resuming: build already ran (session id is persisted)
     state.start_step(step_name)
     result = ctx.agents.run(role, prompt_text, cwd=ctx.repo_dir, step_name=step_name)
     state.add_cost(result.cost_usd)
@@ -139,6 +187,8 @@ def resume_turn(
 ) -> RunOutcome | None:
     """A write-access agent turn that RESUMES the build session (keeps context)."""
     state = ctx.state
+    if _done(ctx, step_name):
+        return None
     state.start_step(step_name)
     result = ctx.agents.run(
         role, prompt_text, cwd=ctx.repo_dir, step_name=step_name, session_id=state.build_session_id
@@ -157,6 +207,8 @@ def resume_turn(
 def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None:
     """Run all gates; on failure, resume the build session with the failures. Repeat."""
     state, config, repo = ctx.state, ctx.config, ctx.repo_dir
+    if state.gates_passed:
+        return None  # resuming after gates already passed
     gate_order = config.gate_order()
     gates_dir = ctx.run_dir / "gates"
     max_fixes = config.workflow.max_fix_iterations
@@ -175,6 +227,7 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
         failures = [r for r in results if not r.ok]
         if not failures:
             state.end_step(f"gates-{attempt}", "ok")
+            state.gates_passed = True
             save_state(state, ctx.run_dir)
             passed = True
             break
@@ -209,8 +262,10 @@ def gate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None
 def review(ctx: WorkflowContext, *, context: str, prompt_name: str = "review") -> None:
     """Fresh-session, read-only review of the diff. Advisory; writes review.md."""
     repo = ctx.repo_dir
-    git_ops.stage_all(repo)  # so new files appear in the diff vs the base
     state = ctx.state
+    if _done(ctx, "review"):
+        return  # resuming: review already ran
+    git_ops.stage_all(repo)  # so new files appear in the diff vs the base
     state.start_step("review")
     result = ctx.agents.run(
         "review",
@@ -234,14 +289,27 @@ def review(ctx: WorkflowContext, *, context: str, prompt_name: str = "review") -
 
 
 def final_gate(ctx: WorkflowContext) -> RunOutcome | None:
-    """Engineer gate 2: ship or reject (reject keeps the branch for salvage)."""
+    """Engineer gate 2: ship or reject (pauses in async mode; reject keeps the branch)."""
     state = ctx.state
-    if state.status != "awaiting_final_review":
+    if _done(ctx, "final"):
+        return None
+    decision = _decide(ctx, kind="final", artifact_name="review.md")
+    if decision is None:
         state.status = "awaiting_final_review"
+        state.pending_gate = "final"
         save_state(state, ctx.run_dir)
-    summary = git_ops.diff_summary(ctx.repo_dir, state.base_branch)
-    if not human.final_review(summary, ctx.run_dir / "review.md", auto=ctx.assume_yes):
+        return RunOutcome(
+            "paused",
+            "awaiting final review",
+            hints=[
+                f"inspect the change: adw status {state.run_id}",
+                f"adw resume {state.run_id} --approve   (or --reject)",
+            ],
+        )
+    if decision != "approve":
         state.status = "rejected"
+        state.pending_gate = None
+        state.end_step("final", "failed", "rejected")
         state.outcome_detail = f"rejected at final review; branch {state.work_branch} kept"
         save_state(state, ctx.run_dir)
         return RunOutcome(
@@ -249,6 +317,9 @@ def final_gate(ctx: WorkflowContext) -> RunOutcome | None:
             "rejected at final review",
             hints=[f"work preserved on branch {state.work_branch}"],
         )
+    state.end_step("final", "ok")
+    state.pending_gate = None
+    save_state(state, ctx.run_dir)
     return None
 
 

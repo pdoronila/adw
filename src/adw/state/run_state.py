@@ -19,6 +19,7 @@ RunStatus = Literal[
     "running",
     "awaiting_plan_approval",
     "awaiting_final_review",
+    "paused",
     "shipped",
     "failed",
     "rejected",
@@ -49,6 +50,8 @@ class RunState(BaseModel):
     work_branch: str = ""
     build_session_id: str | None = None
     fix_attempts: int = 0
+    pending_gate: str | None = None  # "plan" | "final" when awaiting an engineer decision
+    gates_passed: bool = False
     steps: list[StepRecord] = Field(default_factory=list)
     gate_results: list[dict[str, object]] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_now)
