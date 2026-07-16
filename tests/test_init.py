@@ -68,6 +68,120 @@ def test_init_node_project(tmp_path: Path) -> None:
     assert config.gates["test"].command == "pnpm test"
 
 
+def test_init_rust_project(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "demo"\nversion = "0.1.0"\n')
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert config.gates["lint"].command == "cargo clippy -- -D warnings"
+    assert config.gates["test"].command == "cargo test"
+
+
+def test_init_swift_package(tmp_path: Path) -> None:
+    (tmp_path / "Package.swift").write_text("// swift-tools-version:5.9\n")
+    (tmp_path / ".swiftlint.yml").write_text("")
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert config.gates["test"].command == "swift test"
+    assert config.gates["lint"].command == "swiftlint"
+
+
+def test_init_swift_package_without_swiftlint(tmp_path: Path) -> None:
+    (tmp_path / "Package.swift").write_text("// swift-tools-version:5.9\n")
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert "lint" not in config.gates
+
+
+def test_init_ios_project(tmp_path: Path) -> None:
+    (tmp_path / "Demo.xcodeproj").mkdir()
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    command = config.gates["test"].command
+    assert "xcodebuild test" in command
+    assert "-project Demo.xcodeproj" in command
+    assert "-scheme Demo" in command
+    assert "scheme and simulator destination were guessed" in result.output
+
+
+def test_init_ios_prefers_workspace(tmp_path: Path) -> None:
+    (tmp_path / "Demo.xcodeproj").mkdir()
+    (tmp_path / "Demo.xcworkspace").mkdir()
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert "-workspace Demo.xcworkspace" in config.gates["test"].command
+
+
+def test_init_ios_beats_swift_package(tmp_path: Path) -> None:
+    (tmp_path / "Demo.xcodeproj").mkdir()
+    (tmp_path / "Package.swift").write_text("// swift-tools-version:5.9\n")
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert "xcodebuild" in config.gates["test"].command
+
+
+def test_init_elixir_project(tmp_path: Path) -> None:
+    (tmp_path / "mix.exs").write_text(
+        """
+defmodule Demo.MixProject do
+  use Mix.Project
+
+  defp deps do
+    [
+      {:credo, "~> 1.7", only: :dev},
+      {:dialyxir, "~> 1.4", only: :dev}
+    ]
+  end
+end
+"""
+    )
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert config.gates["lint"].command == "mix credo"
+    assert config.gates["typecheck"].command == "mix dialyzer"
+    assert config.gates["test"].command == "mix test"
+    assert config.gate_order() == ["lint", "typecheck", "test"]
+
+
+def test_init_elixir_minimal(tmp_path: Path) -> None:
+    (tmp_path / "mix.exs").write_text(
+        """
+defmodule Demo.MixProject do
+  use Mix.Project
+
+  defp deps, do: []
+end
+"""
+    )
+
+    result = runner.invoke(app, ["init", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    config = load_config(tmp_path)
+    assert config.gates["lint"].command == "mix format --check-formatted"
+    assert "typecheck" not in config.gates
+
+
 def test_init_refuses_overwrite(target_repo: Path) -> None:
     target = target_repo / "adw.yaml"
     target.write_text("original\n")
@@ -111,6 +225,19 @@ def test_generated_yaml_is_valid_config() -> None:
             gates={
                 "lint": GateConfig(command="cargo clippy -- -D warnings", timeout=120),
                 "test": GateConfig(command="cargo test", timeout=900),
+            },
+            notes=[],
+        ),
+        ProjectProfile(
+            ecosystem="ios",
+            gates={
+                "test": GateConfig(
+                    command=(
+                        "xcodebuild test -project Demo.xcodeproj -scheme Demo "
+                        "-destination 'platform=iOS Simulator,name=iPhone 16' -quiet"
+                    ),
+                    timeout=1800,
+                ),
             },
             notes=[],
         ),

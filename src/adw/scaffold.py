@@ -119,6 +119,65 @@ def _detect_go(repo: Path) -> ProjectProfile:
     return ProjectProfile(ecosystem="go", gates=gates, notes=[])
 
 
+def _has_swiftlint(repo: Path) -> bool:
+    return (repo / ".swiftlint.yml").exists() or (repo / ".swiftlint.yaml").exists()
+
+
+def _detect_swift(repo: Path) -> ProjectProfile:
+    gates = {"test": _gate("swift test", 900)}
+    if _has_swiftlint(repo):
+        gates["lint"] = _gate("swiftlint", 120)
+    return ProjectProfile(ecosystem="swift", gates=gates, notes=[])
+
+
+def _detect_ios(repo: Path) -> ProjectProfile:
+    workspace = next(iter(sorted(repo.glob("*.xcworkspace"))), None)
+    project = next(iter(sorted(repo.glob("*.xcodeproj"))), None)
+    destination = "platform=iOS Simulator,name=iPhone 16"
+    if workspace is not None:
+        scheme = workspace.stem
+        command = (
+            f"xcodebuild test -workspace {workspace.name} -scheme {scheme} "
+            f"-destination '{destination}' -quiet"
+        )
+    else:
+        assert project is not None  # detect_project only calls us when a container exists
+        scheme = project.stem
+        command = (
+            f"xcodebuild test -project {project.name} -scheme {scheme} "
+            f"-destination '{destination}' -quiet"
+        )
+
+    gates = {"test": _gate(command, 1800)}
+    if _has_swiftlint(repo):
+        gates["lint"] = _gate("swiftlint", 120)
+    notes = [
+        "scheme and simulator destination were guessed — "
+        "verify with `xcodebuild -list` and edit adw.yaml if wrong"
+    ]
+    return ProjectProfile(ecosystem="ios", gates=gates, notes=notes)
+
+
+def _detect_elixir(repo: Path) -> ProjectProfile:
+    notes: list[str] = []
+    try:
+        source = (repo / "mix.exs").read_text()
+    except OSError:
+        source = ""
+        notes.append("mix.exs could not be read; gates guessed from files only")
+
+    gates: dict[str, GateConfig] = {}
+    if ":credo" in source:
+        gates["lint"] = _gate("mix credo", 120)
+    else:
+        gates["lint"] = _gate("mix format --check-formatted", 120)
+    if ":dialyxir" in source:
+        gates["typecheck"] = _gate("mix dialyzer", 600)
+    gates["test"] = _gate("mix test", 900)
+
+    return ProjectProfile(ecosystem="elixir", gates=gates, notes=notes)
+
+
 def detect_project(repo: Path) -> ProjectProfile:
     """Detect ecosystem and gates from file markers, first match wins."""
     if (repo / "pyproject.toml").exists():
@@ -129,6 +188,12 @@ def detect_project(repo: Path) -> ProjectProfile:
         return _detect_rust(repo)
     if (repo / "go.mod").exists():
         return _detect_go(repo)
+    if any(repo.glob("*.xcworkspace")) or any(repo.glob("*.xcodeproj")):
+        return _detect_ios(repo)
+    if (repo / "Package.swift").exists():
+        return _detect_swift(repo)
+    if (repo / "mix.exs").exists():
+        return _detect_elixir(repo)
     return ProjectProfile(
         ecosystem="unknown",
         gates={},
