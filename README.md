@@ -61,7 +61,7 @@ uv run pytest && uv run ruff check . && uv run mypy
 
 ## Point it at a repo
 
-Drop an `adw.yaml` into any target repository:
+Drop an `adw.yaml` into any target repository — or run `adw init` to inspect the project and generate the starter file shown below:
 
 ```yaml
 gates:
@@ -90,6 +90,7 @@ Model strings are backend-native and passed through verbatim (`opus` for claude,
 ## Run a workflow
 
 ```bash
+adw init                                # inspect the project and generate adw.yaml
 adw doctor                              # check backends, config, gates
 adw workflows                           # list available workflows
 adw run feature "Add a --json flag to the export command"

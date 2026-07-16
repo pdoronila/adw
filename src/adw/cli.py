@@ -193,6 +193,37 @@ def doctor(repo: Path = REPO_OPT) -> None:
     raise typer.Exit(1 if failures else 0)
 
 
+@app.command()
+def init(
+    repo: Path = REPO_OPT,
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing adw.yaml"),
+) -> None:
+    """Inspect the project and generate a starter adw.yaml."""
+    from adw import scaffold
+    from adw.config import REPO_CONFIG_NAME
+    from adw.nodes import git_ops
+
+    target = repo / REPO_CONFIG_NAME
+    if target.exists() and not force:
+        typer.secho(f"{target} already exists (use --force to overwrite)", fg="red")
+        raise typer.Exit(1)
+
+    profile = scaffold.detect_project(repo)
+    backend = scaffold.detect_backend(AdwConfig())
+    text = scaffold.render_config(profile, backend)
+    scaffold.validate_rendered(text)
+    target.write_text(text)
+
+    typer.secho(f"created {target} (ecosystem: {profile.ecosystem})", fg="green", bold=True)
+    for name, gate in profile.gates.items():
+        typer.echo(f"  {name:<10} $ {gate.command}")
+    for note in profile.notes:
+        typer.secho(f"  ! {note}", fg="yellow")
+    if not git_ops.is_git_repo(repo):
+        typer.secho(f"  ! {repo} is not a git repo — adw workflows need one", fg="yellow")
+    typer.echo('next: adw doctor && adw run feature "..."')
+
+
 @ticket_app.command("new")
 def ticket_new(
     title: str = typer.Argument(help="Ticket title"),
