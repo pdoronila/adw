@@ -1,0 +1,5 @@
+gates:
+  test: {command: "uv run --no-project --with pytest pytest -x -q", timeout: 180}
+agents:
+  default: {backend: claude-code, model: sonnet}
+workflow: {max_fix_iterations: 3, gate_order: [test]}

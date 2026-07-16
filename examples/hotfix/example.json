@@ -1,0 +1,5 @@
+{
+  "workflow": "hotfix",
+  "task": "Production incident: average_price() raises ZeroDivisionError on an empty cart, taking down checkout. Ship the smallest safe fix — return 0.0 for an empty cart.",
+  "note": "Framed as prod-down. Extra human gate approves the approach; watch for a minimal fix, not a refactor."
+}

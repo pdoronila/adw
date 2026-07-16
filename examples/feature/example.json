@@ -1,0 +1,5 @@
+{
+  "workflow": "feature",
+  "task": "Add a multiply(a, b) function to calc.py in the same style as add, and a pytest test for it in test_calc.py.",
+  "note": "Simple additive feature. Watch: plan -> approve -> build -> gate -> review -> ship."
+}

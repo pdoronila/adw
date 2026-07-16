@@ -1,0 +1,5 @@
+{
+  "workflow": "cve",
+  "task": "Path traversal in read_document() (fileserver.py): the 'name' parameter is joined into DOCS_ROOT without validation, so a caller passing '../secret.txt' can read files outside the docs directory. Reproduce it with a failing security test proving '../secret.txt' escapes DOCS_ROOT, then add a protection that confines reads to DOCS_ROOT.",
+  "note": "Defensive. secret.txt at repo root stands in for an out-of-bounds file. The security test must fail before the fix and pass after."
+}

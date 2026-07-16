@@ -1,0 +1,5 @@
+{
+  "workflow": "bug",
+  "task": "search() returns each matching item twice when the query has no trailing whitespace; it should return each match exactly once. Diagnose the root cause and fix it with a regression test.",
+  "note": "Real defect: double-append. Confirm the regression test fails before the fix, passes after."
+}

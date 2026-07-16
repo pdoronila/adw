@@ -1,0 +1,5 @@
+{
+  "workflow": "chore",
+  "task": "Add type hints so the signature reads `def greet(name: str) -> str` in greet.py.",
+  "note": "Single workhorse agent, no plan/review. Cheapest workflow to test."
+}
