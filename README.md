@@ -152,7 +152,7 @@ What `adw run feature` does:
 6. **Gate loop** *(code)* — run all gates; on failure, feed excerpts back into the **same build session**; repeat up to `max_fix_iterations`
 7. **Review loop** *(agent, fresh session each round, read-only)* — reviews the diff; `VERDICT: concerns` routes the findings back into the **build session** (revise), re-runs the gate loop, and re-reviews, up to `max_review_iterations` rounds; then proceeds to the final gate either way
 8. **Engineer gate 2** — diff summary + review → ship or reject
-9. **Ship** *(code)* — commit on the work branch, optional `gh pr create`
+9. **Ship** *(code)* — commit on the work branch with a conventional-commit title (`<type>: <subject>`, type inferred from the workflow — feature→feat, bug/hotfix/cve→fix, chore→chore — subject is the task's first line truncated to ~72 chars) and the full task text in the commit body, optional `gh pr create` (PR title matches the commit subject)
 
 Every run leaves a full artifact trail in the target repo under `.adw/runs/<run-id>/`: `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`.
 
