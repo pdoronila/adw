@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="run-head">
+    <h2>{{ state.run_id }}</h2>
+    <span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span>
+  </div>
+  <div class="muted">{{ state.workflow }} · ${{ "%.2f"|format(state.total_cost_usd) }}</div>
+  <p class="task">{{ state.task }}</p>
+
+  <div class="run-actions">
+    {% if state.status in ("paused", "awaiting_plan_approval", "awaiting_final_review") %}
+    <form method="post" action="/runs/{{ state.run_id }}/approve">
+      <button type="submit">Approve</button>
+    </form>
+    <form method="post" action="/runs/{{ state.run_id }}/reject">
+      <button type="submit" class="danger">Reject</button>
+    </form>
+    {% elif state.status == "failed" %}
+    <form method="post" action="/runs/{{ state.run_id }}/retry">
+      <button type="submit">Retry</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h3>Timeline</h3>
+  {% if live %}
+  <div hx-ext="sse" sse-connect="/runs/{{ state.run_id }}/events" sse-swap="timeline" id="timeline">
+    {% include "_timeline.html" %}
+  </div>
+  {% else %}
+  <div id="timeline">
+    {% include "_timeline.html" %}
+  </div>
+  {% endif %}
+</section>
+
+{% if plan_html %}
+<section class="card">
+  <h3>Plan</h3>
+  <div class="markdown">{{ plan_html|safe }}</div>
+</section>
+{% endif %}
+
+{% if review_html %}
+<section class="card">
+  <h3>Review</h3>
+  <div class="markdown">{{ review_html|safe }}</div>
+</section>
+{% endif %}
+
+{% if gate_rounds %}
+<section class="card">
+  <h3>Gate results</h3>
+  <table class="gates">
+    <thead><tr><th>attempt</th><th>gate</th><th>ok</th><th>exit</th></tr></thead>
+    <tbody>
+      {% for round in gate_rounds %}
+        {% for result in round.results %}
+        <tr>
+          <td>{{ round.attempt }}</td>
+          <td>{{ result.name }}</td>
+          <td>{{ "✓" if result.ok else "✗" }}</td>
+          <td class="num">{{ result.exit_code }}</td>
+        </tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if gate_logs %}
+<section class="card">
+  <h3>Gate logs</h3>
+  {% for name, content in gate_logs %}
+  <details>
+    <summary>{{ name }}</summary>
+    <pre class="transcript">{{ content }}</pre>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if transcripts %}
+<section class="card">
+  <h3>Agent transcripts</h3>
+  {% for t in transcripts %}
+  <details>
+    <summary>{{ t.name }} — role={{ t.role }} model={{ t.model }} cost=${{ "%.2f"|format(t.cost_usd) }}</summary>
+    <pre class="transcript">{{ t.output }}</pre>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

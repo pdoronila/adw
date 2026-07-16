@@ -1,0 +1,7 @@
+<tr>
+  <td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+  <td>{{ run.workflow }}</td>
+  <td><span class="pill pill-{{ pill_class(run.status) }}">{{ run.status }}</span></td>
+  <td class="num">${{ "%.2f"|format(run.total_cost_usd) }}</td>
+  <td class="muted">{{ run.updated_at }}</td>
+</tr>

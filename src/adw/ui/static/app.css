@@ -1,0 +1,146 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --border: #e2e5ea;
+  --text: #1c2430;
+  --muted: #6b7480;
+  --accent: #2563eb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.topbar {
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.card h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
+.card h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+
+.muted { color: var(--muted); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Forms */
+.stack { display: flex; flex-direction: column; gap: 0.75rem; }
+.row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: var(--muted); }
+input, select, textarea {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+textarea { resize: vertical; }
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.05); }
+button.danger { background: #dc2626; }
+
+/* Pills */
+.pill {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.pill-shipped { background: #dcfce7; color: #166534; }
+.pill-failed { background: #fee2e2; color: #991b1b; }
+.pill-paused { background: #cffafe; color: #155e75; }
+.pill-running { background: #dbeafe; color: #1e40af; }
+.pill-rejected { background: #fef9c3; color: #854d0e; }
+
+/* Step pills reuse the same palette */
+.pill-step-ok { background: #dcfce7; color: #166534; }
+.pill-step-failed { background: #fee2e2; color: #991b1b; }
+.pill-step-running { background: #dbeafe; color: #1e40af; }
+.pill-step-pending { background: #eef1f4; color: #6b7480; }
+.pill-step-skipped { background: #eef1f4; color: #6b7480; }
+
+/* Ticket board */
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+.board-col h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.ticket {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.ticket-title { font-size: 0.9rem; font-weight: 600; }
+
+/* Timeline */
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.timeline-step { display: flex; align-items: center; gap: 0.6rem; }
+.step-name { font-weight: 600; }
+
+/* Run detail */
+.run-head { display: flex; align-items: center; gap: 0.75rem; }
+.run-head h2 { margin: 0; }
+.task { white-space: pre-wrap; }
+.run-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+details { border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
+summary { cursor: pointer; font-size: 0.9rem; }
+.transcript {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.markdown pre { background: #0f172a; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+.markdown code { font-size: 0.85rem; }

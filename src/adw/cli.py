@@ -78,9 +78,11 @@ def _execute(
     assume_yes: bool,
     async_mode: bool = False,
     run_suffix: str = "",
+    run_id: str | None = None,
 ) -> rs.RunState:
     workflow = get_workflow(workflow_name)
-    run_id = rs.new_run_id(task) + run_suffix
+    if run_id is None:
+        run_id = rs.new_run_id(task) + run_suffix
     run_dir = rs.create_run_dir(repo, run_id)
     state = rs.RunState(run_id=run_id, workflow=workflow_name, task=task, repo=str(repo))
     rs.save_state(state, run_dir)
@@ -124,6 +126,7 @@ def run(
         None, help="Override isolation.type: local|worktree|container"
     ),
     dry_run: bool = typer.Option(False, help="Print the resolved plan of execution and exit"),
+    run_id: str | None = typer.Option(None, "--run-id", hidden=True, help="Preassigned run id"),
 ) -> None:
     """Run one AI developer workflow end to end."""
     config = _load(repo)
@@ -155,7 +158,9 @@ def run(
     if race > 1:
         winner = _race(workflow, task, repo, config, race)
         raise typer.Exit(0 if winner is not None else 1)
-    state = _execute(workflow, task, repo, config, auto_approve_plan, yes, async_mode)
+    state = _execute(
+        workflow, task, repo, config, auto_approve_plan, yes, async_mode, run_id=run_id
+    )
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
@@ -477,6 +482,31 @@ def retry(
     _report(state, outcome, run_dir)
     _cleanup_isolation(state)
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
+
+
+@app.command()
+def ui(
+    repo: Path = REPO_OPT,
+    port: int = typer.Option(8770, "--port"),
+    host: str = typer.Option("127.0.0.1", "--host"),
+    no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),
+) -> None:
+    """Serve the local web dashboard."""
+    try:
+        import uvicorn
+
+        from adw.ui.server import create_app
+    except ImportError as exc:
+        typer.secho(
+            "adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red"
+        )
+        raise typer.Exit(2) from exc
+    app_ = create_app(repo)
+    if not no_open:
+        import webbrowser
+
+        webbrowser.open(f"http://{host}:{port}/")
+    uvicorn.run(app_, host=host, port=port)
 
 
 @app.command()
