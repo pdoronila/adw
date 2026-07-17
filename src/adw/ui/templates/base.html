@@ -3,17 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>adw</title>
+  <title>{% block title %}adw{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <script src="https://unpkg.com/htmx.org@2"></script>
-  <script src="https://unpkg.com/htmx-ext-sse@2"></script>
+  <!-- vendored: htmx 2.0.10 + htmx-ext-sse 2.2.4 -->
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/sse.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/">adw</a>
-  </header>
-  <main class="container">
+  <aside class="sidebar">
+    <a class="brand" href="/">adw<span class="cursor">▌</span></a>
+    <nav class="nav">
+      <span class="nav-label">Navigate</span>
+      <a href="/" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+      {% block sidebar_nav %}{% endblock %}
+    </nav>
+    {% block sidebar_extra %}{% endblock %}
+    <div class="sidebar-foot">
+      <span class="nav-label">Keys</span>
+      <span class="key-hint"><kbd>/</kbd> search</span>
+      <span class="key-hint"><kbd>r</kbd> new run</span>
+      <span class="key-hint"><kbd>n</kbd> new ticket</span>
+      <span class="key-hint"><kbd>g</kbd><kbd>d</kbd> dashboard</span>
+    </div>
+  </aside>
+  <main class="content">
     {% block content %}{% endblock %}
   </main>
+  {% if toast_message %}
+  <div class="toast" id="toast" role="status">{{ toast_message }}</div>
+  {% endif %}
+  <script src="/static/app.js" defer></script>
 </body>
 </html>

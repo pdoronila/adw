@@ -222,7 +222,7 @@ pip install 'adw[ui]'
 adw ui                    # serves http://localhost:8770 and opens your browser
 ```
 
-It shows the runs table, the ticket board, and a live step timeline (streamed over SSE), with buttons to approve/reject paused runs, retry failed ones, start a run, file a ticket, and drain the queue. Actions shell out to the same `adw` CLI, detached. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
+It shows the runs table (searchable, filterable by status, auto-refreshing), the ticket board, and a live step timeline (streamed over SSE), with buttons to approve/reject paused runs, retry failed ones, start a run, file a ticket, and drain the queue. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` new run, `n` new ticket, `g` `d` back to the dashboard. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
 
 ## Isolation, parallelism & racing
 

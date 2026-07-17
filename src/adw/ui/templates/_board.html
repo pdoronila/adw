@@ -1,0 +1,17 @@
+{% set labels = {"queue": "Queue", "in_progress": "In progress", "done": "Done", "failed": "Failed"} %}
+<div class="board">
+  {% for state in ticket_states %}
+  <div class="board-col">
+    <h3>{{ labels.get(state, state) }} <span class="count">{{ board[state]|length }}</span></h3>
+    {% for ticket in board[state] %}
+    <div class="ticket">
+      <div class="ticket-title">{{ ticket.title }}</div>
+      {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
+      <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
+    </div>
+    {% else %}
+    <div class="empty empty-sm">no tickets</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import markdown  # type: ignore[import-untyped]
@@ -32,10 +33,63 @@ PILL_STATUS: dict[str, str] = {
 TERMINAL = {"shipped", "failed", "rejected"}
 PAUSED = {"paused", "awaiting_plan_approval", "awaiting_final_review"}
 
+# Toast keys carried through `?toast=<key>` redirect params. Only known keys
+# render (free text from the URL never reaches the page).
+TOAST_MESSAGES: dict[str, str] = {
+    "run-started": "Run started",
+    "approved": "Run approved — resuming",
+    "rejected": "Run rejected",
+    "retry-started": "Retry started",
+    "ticket-created": "Ticket created",
+    "queue-processing": "Queue processing started",
+}
+
+
+def toast_message(key: str) -> str | None:
+    """Message for a `?toast=` key, or None for unknown/empty keys."""
+    return TOAST_MESSAGES.get(key)
+
 
 def pill_class(status: str) -> str:
     """Jinja helper: raw status -> `pill-*` CSS class suffix."""
     return PILL_STATUS.get(status, "running")
+
+
+def filter_runs(runs: list[rs.RunState], q: str = "", status: str = "") -> list[rs.RunState]:
+    """Filter runs by substring (run_id/task/workflow) and status.
+
+    `status="paused"` matches all human-gate states (mirrors `PAUSED`).
+    """
+    needle = q.strip().lower()
+    out: list[rs.RunState] = []
+    for run in runs:
+        if needle and not any(
+            needle in field.lower() for field in (run.run_id, run.task, run.workflow)
+        ):
+            continue
+        if status:
+            if status == "paused":
+                if run.status not in PAUSED:
+                    continue
+            elif run.status != status:
+                continue
+        out.append(run)
+    return out
+
+
+def humanize_ts(dt: datetime) -> str:
+    """Jinja helper: aware datetime -> 'just now' / '4m ago' / '3h ago' / date."""
+    delta = datetime.now(UTC) - dt
+    seconds = delta.total_seconds()
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    if seconds < 7 * 86400:
+        return f"{int(seconds // 86400)}d ago"
+    return dt.date().isoformat()
 
 
 def list_runs(repo: Path) -> list[rs.RunState]:

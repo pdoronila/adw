@@ -1,11 +1,25 @@
 {% extends "base.html" %}
+{% block title %}{{ state.run_id }} · adw{% endblock %}
+{% block sidebar_nav %}
+<span class="nav-label">Run</span>
+<span class="nav-run mono">{{ state.run_id }}</span>
+<span class="nav-run-status"><span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span></span>
+{% endblock %}
 {% block content %}
 <section class="card">
   <div class="run-head">
-    <h2>{{ state.run_id }}</h2>
+    <h2 class="mono">{{ state.run_id }}</h2>
     <span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span>
   </div>
-  <div class="muted">{{ state.workflow }} · ${{ "%.2f"|format(state.total_cost_usd) }}</div>
+  <dl class="meta-grid">
+    <div><dt>workflow</dt><dd>{{ state.workflow }}</dd></div>
+    <div><dt>cost</dt><dd class="mono">${{ "%.2f"|format(state.total_cost_usd) }}</dd></div>
+    <div><dt>created</dt><dd title="{{ state.created_at }}">{{ humanize_ts(state.created_at) }}</dd></div>
+    <div><dt>updated</dt><dd title="{{ state.updated_at }}">{{ humanize_ts(state.updated_at) }}</dd></div>
+    {% if state.outcome_detail %}
+    <div class="meta-wide"><dt>outcome</dt><dd>{{ state.outcome_detail }}</dd></div>
+    {% endif %}
+  </dl>
   <p class="task">{{ state.task }}</p>
 
   <div class="run-actions">
@@ -55,15 +69,15 @@
 <section class="card">
   <h3>Gate results</h3>
   <table class="gates">
-    <thead><tr><th>attempt</th><th>gate</th><th>ok</th><th>exit</th></tr></thead>
+    <thead><tr><th>attempt</th><th>gate</th><th>ok</th><th class="num">exit</th></tr></thead>
     <tbody>
       {% for round in gate_rounds %}
         {% for result in round.results %}
         <tr>
-          <td>{{ round.attempt }}</td>
+          <td class="mono">{{ round.attempt }}</td>
           <td>{{ result.name }}</td>
-          <td>{{ "✓" if result.ok else "✗" }}</td>
-          <td class="num">{{ result.exit_code }}</td>
+          <td><span class="pill pill-step-{{ 'ok' if result.ok else 'failed' }}">{{ "✓" if result.ok else "✗" }}</span></td>
+          <td class="num mono">{{ result.exit_code }}</td>
         </tr>
         {% endfor %}
       {% endfor %}
@@ -77,7 +91,7 @@
   <h3>Gate logs</h3>
   {% for name, content in gate_logs %}
   <details>
-    <summary>{{ name }}</summary>
+    <summary><span class="mono">{{ name }}</span></summary>
     <pre class="transcript">{{ content }}</pre>
   </details>
   {% endfor %}
@@ -89,7 +103,14 @@
   <h3>Agent transcripts</h3>
   {% for t in transcripts %}
   <details>
-    <summary>{{ t.name }} — role={{ t.role }} model={{ t.model }} cost=${{ "%.2f"|format(t.cost_usd) }}</summary>
+    <summary>
+      <span class="mono">{{ t.name }}</span>
+      <span class="chips">
+        <span class="chip">role={{ t.role }}</span>
+        <span class="chip">model={{ t.model }}</span>
+        <span class="chip">cost=${{ "%.2f"|format(t.cost_usd) }}</span>
+      </span>
+    </summary>
     <pre class="transcript">{{ t.output }}</pre>
   </details>
   {% endfor %}

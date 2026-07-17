@@ -100,7 +100,7 @@ def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
         data={"title": "New task", "body": "body text", "workflow": "bug", "priority": "3"},
     )
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/?toast=ticket-created"
     titles = [t.title for t in ticket_mod.list_tickets(tmp_path, "queue")]
     assert "New task" in titles
 
@@ -129,7 +129,7 @@ def test_post_runs_spawns_and_redirects(tmp_path: Path, monkeypatch: pytest.Monk
     for token in ("run", "feature", "--run-id", "--async", "--repo"):
         assert token in argv
     run_id = argv[argv.index("--run-id") + 1]
-    assert resp.headers["location"] == f"/runs/{run_id}"
+    assert resp.headers["location"] == f"/runs/{run_id}?toast=run-started"
 
 
 def test_post_approve_and_retry_spawn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -175,6 +175,77 @@ def test_timeline_events_stops_on_paused(tmp_path: Path) -> None:
     assert next(gen)  # emits current timeline once
     with pytest.raises(StopIteration):
         next(gen)  # then stops because status is paused
+
+
+def test_filter_runs_unit(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "alpha", status="shipped")
+    _seed_run(tmp_path, "beta", status="awaiting_plan_approval", pending_gate="plan")
+    _seed_run(tmp_path, "gamma", status="failed")
+    runs = views.list_runs(tmp_path)
+
+    assert {r.run_id for r in views.filter_runs(runs)} == {"alpha", "beta", "gamma"}
+    assert [r.run_id for r in views.filter_runs(runs, q="ALPH")] == ["alpha"]
+    assert [r.run_id for r in views.filter_runs(runs, q="widget", status="failed")] == ["gamma"]
+    # "paused" matches the awaiting_* human-gate states too
+    assert [r.run_id for r in views.filter_runs(runs, status="paused")] == ["beta"]
+    assert views.filter_runs(runs, q="no-such-run") == []
+
+
+def test_fragments_runs_filters(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "alpha", status="shipped")
+    _seed_run(tmp_path, "gamma", status="failed")
+    client = TestClient(create_app(tmp_path))
+
+    body = client.get("/fragments/runs").text
+    assert "alpha" in body and "gamma" in body
+
+    body = client.get("/fragments/runs", params={"q": "alpha"}).text
+    assert "alpha" in body and "gamma" not in body
+
+    body = client.get("/fragments/runs", params={"status": "failed"}).text
+    assert "gamma" in body and "alpha" not in body
+
+    body = client.get("/fragments/runs", params={"q": "no-match"}).text
+    assert "No runs match" in body
+
+
+def test_fragments_board(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Fix login", "details")
+    client = TestClient(create_app(tmp_path))
+    body = client.get("/fragments/board").text
+    assert "Fix login" in body
+    assert "no tickets" in body  # empty-column placeholder
+
+
+def test_dashboard_empty_state(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    assert "No runs yet" in client.get("/").text
+
+
+def test_toast_rendering(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    body = client.get("/", params={"toast": "ticket-created"}).text
+    assert "Ticket created" in body
+    bogus = client.get("/", params={"toast": "bogus"}).text
+    assert 'id="toast"' not in bogus
+
+
+def test_static_assets_served(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    for asset in ("htmx.min.js", "sse.js", "app.js", "app.css"):
+        assert client.get(f"/static/{asset}").status_code == 200
+
+
+def test_humanize_ts() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    assert views.humanize_ts(now) == "just now"
+    assert views.humanize_ts(now - timedelta(minutes=4)) == "4m ago"
+    assert views.humanize_ts(now - timedelta(hours=3)) == "3h ago"
+    assert views.humanize_ts(now - timedelta(days=2)) == "2d ago"
+    old = now - timedelta(days=30)
+    assert views.humanize_ts(old) == old.date().isoformat()
 
 
 def test_python_m_adw_version() -> None:

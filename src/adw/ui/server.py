@@ -24,7 +24,11 @@ def create_app(repo: Path) -> FastAPI:
     app = FastAPI(title="adw")
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals["pill_class"] = views.pill_class
+    templates.env.globals["humanize_ts"] = views.humanize_ts
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+
+    def _board() -> dict[str, list[ticket_mod.Ticket]]:
+        return {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}
 
     def _gate_rounds(state: rs.RunState) -> list[dict[str, object]]:
         rounds: list[dict[str, object]] = []
@@ -42,21 +46,50 @@ def create_app(repo: Path) -> FastAPI:
         return rounds
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request) -> HTMLResponse:
-        board = {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}
+    def dashboard(
+        request: Request, q: str = "", status: str = "", toast: str = ""
+    ) -> HTMLResponse:
+        runs = views.list_runs(repo)
+        board = _board()
         return templates.TemplateResponse(
             request,
             "dashboard.html",
             {
-                "runs": views.list_runs(repo),
+                "runs": views.filter_runs(runs, q, status),
+                "run_count": len(runs),
+                "queue_count": len(board["queue"]),
+                "q": q,
+                "status": status,
                 "board": board,
                 "ticket_states": ticket_mod.STATES,
                 "workflows": views.workflow_options(),
+                "toast_message": views.toast_message(toast),
+                "active_page": "dashboard",
             },
         )
 
+    @app.get("/fragments/runs", response_class=HTMLResponse)
+    def fragment_runs(request: Request, q: str = "", status: str = "") -> HTMLResponse:
+        runs = views.list_runs(repo)
+        return templates.TemplateResponse(
+            request,
+            "_runs_table.html",
+            {
+                "runs": views.filter_runs(runs, q, status),
+                "run_count": len(runs),
+            },
+        )
+
+    @app.get("/fragments/board", response_class=HTMLResponse)
+    def fragment_board(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "_board.html",
+            {"board": _board(), "ticket_states": ticket_mod.STATES},
+        )
+
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
-    def run_detail(request: Request, run_id: str) -> HTMLResponse:
+    def run_detail(request: Request, run_id: str, toast: str = "") -> HTMLResponse:
         state = views.get_state(repo, run_id)
         if state is None:
             raise HTTPException(status_code=404, detail=f"no run {run_id!r}")
@@ -66,6 +99,7 @@ def create_app(repo: Path) -> FastAPI:
             "run_detail.html",
             {
                 "state": state,
+                "toast_message": views.toast_message(toast),
                 "plan_html": views.render_markdown_file(run_dir, "plan.md"),
                 "review_html": views.render_markdown_file(run_dir, "review.md"),
                 "gate_rounds": _gate_rounds(state),
@@ -95,22 +129,22 @@ def create_app(repo: Path) -> FastAPI:
     ) -> RedirectResponse:
         run_id = rs.new_run_id(task)
         runner.start_run(repo, run_id, workflow, task, model, backend, isolation)
-        return RedirectResponse(f"/runs/{run_id}", status_code=303)
+        return RedirectResponse(f"/runs/{run_id}?toast=run-started", status_code=303)
 
     @app.post("/runs/{run_id}/approve")
     def approve_run(run_id: str) -> RedirectResponse:
         runner.resume_run(repo, run_id, "approve")
-        return RedirectResponse(f"/runs/{run_id}", status_code=303)
+        return RedirectResponse(f"/runs/{run_id}?toast=approved", status_code=303)
 
     @app.post("/runs/{run_id}/reject")
     def reject_run(run_id: str) -> RedirectResponse:
         runner.resume_run(repo, run_id, "reject")
-        return RedirectResponse(f"/runs/{run_id}", status_code=303)
+        return RedirectResponse(f"/runs/{run_id}?toast=rejected", status_code=303)
 
     @app.post("/runs/{run_id}/retry")
     def retry_run(run_id: str) -> RedirectResponse:
         runner.retry_run(repo, run_id)
-        return RedirectResponse(f"/runs/{run_id}", status_code=303)
+        return RedirectResponse(f"/runs/{run_id}?toast=retry-started", status_code=303)
 
     @app.post("/tickets")
     def create_ticket(
@@ -120,11 +154,11 @@ def create_app(repo: Path) -> FastAPI:
         priority: int = Form(ticket_mod.DEFAULT_PRIORITY),
     ) -> RedirectResponse:
         ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=int(priority))
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/?toast=ticket-created", status_code=303)
 
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:
         runner.process_queue(repo)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/?toast=queue-processing", status_code=303)
 
     return app
