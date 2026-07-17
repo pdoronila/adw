@@ -703,6 +703,36 @@ def queue_process(
             break
 
 
+@queue_app.command("retry")
+def queue_retry(
+    ticket_ref: str = typer.Argument(None, metavar="TICKET"),
+    all_tickets: bool = typer.Option(False, "--all", help="Re-queue every failed ticket"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Re-queue one or all failed tickets so the queue processes them again."""
+    if bool(ticket_ref) == all_tickets:
+        typer.secho("pass exactly one of TICKET or --all", fg="red")
+        raise typer.Exit(2)
+
+    if all_tickets:
+        failed = ticket_mod.list_tickets(repo, "failed")
+        if not failed:
+            typer.echo("no failed tickets")
+            return
+        for ticket in failed:
+            path = ticket_mod.requeue(repo, ticket)
+            typer.echo(f"requeued {ticket.title} -> {path}")
+        return
+
+    try:
+        ticket = ticket_mod.find_failed(repo, ticket_ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    path = ticket_mod.requeue(repo, ticket)
+    typer.echo(f"requeued {ticket.title} -> {path}")
+
+
 def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bool) -> None:
     from concurrent.futures import ThreadPoolExecutor
 

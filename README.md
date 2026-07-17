@@ -167,9 +167,10 @@ adw ticket new "Fix flaky retry test" --workflow feature --priority 2 --edit
 adw queue list
 adw queue process            # claim highest-priority ticket, run its workflow
 adw queue process --all -y   # drain the queue unattended
+adw queue retry <ticket>     # re-queue a failed ticket by name (or --all)
 ```
 
-Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended.
+Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended. Failed tickets can be re-queued with `adw queue retry <ticket-stem-or-substring>` (or `adw queue retry --all`), which strips the `## Result` section so the ticket parses cleanly again — the failure history stays in `.adw/runs/<run-id>/`.
 
 ## Factory router
 
