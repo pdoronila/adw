@@ -6,50 +6,20 @@
 <span class="nav-run-status"><span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span></span>
 {% endblock %}
 {% block content %}
-<section class="card">
-  <div class="run-head">
-    <h2 class="mono">{{ state.run_id }}</h2>
-    <span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span>
-  </div>
-  <dl class="meta-grid">
-    <div><dt>workflow</dt><dd>{{ state.workflow }}</dd></div>
-    <div><dt>cost</dt><dd class="mono">${{ "%.2f"|format(state.total_cost_usd) }}</dd></div>
-    <div><dt>created</dt><dd title="{{ state.created_at }}">{{ humanize_ts(state.created_at) }}</dd></div>
-    <div><dt>updated</dt><dd title="{{ state.updated_at }}">{{ humanize_ts(state.updated_at) }}</dd></div>
-    {% if state.outcome_detail %}
-    <div class="meta-wide"><dt>outcome</dt><dd>{{ state.outcome_detail }}</dd></div>
-    {% endif %}
-  </dl>
-  <p class="task">{{ state.task }}</p>
+<div {% if live %}hx-ext="sse" sse-connect="/runs/{{ state.run_id }}/events"{% endif %} class="sse-scope">
+  <section class="card">
+    <div id="run-head"{% if live %} sse-swap="runhead"{% endif %}>
+      {% include "_run_head.html" %}
+    </div>
+  </section>
 
-  <div class="run-actions">
-    {% if state.status in ("paused", "awaiting_plan_approval", "awaiting_final_review") %}
-    <form method="post" action="/runs/{{ state.run_id }}/approve">
-      <button type="submit">Approve</button>
-    </form>
-    <form method="post" action="/runs/{{ state.run_id }}/reject">
-      <button type="submit" class="danger">Reject</button>
-    </form>
-    {% elif state.status == "failed" %}
-    <form method="post" action="/runs/{{ state.run_id }}/retry">
-      <button type="submit">Retry</button>
-    </form>
-    {% endif %}
-  </div>
-</section>
-
-<section class="card">
-  <h3>Timeline</h3>
-  {% if live %}
-  <div hx-ext="sse" sse-connect="/runs/{{ state.run_id }}/events" sse-swap="timeline" id="timeline">
-    {% include "_timeline.html" %}
-  </div>
-  {% else %}
-  <div id="timeline">
-    {% include "_timeline.html" %}
-  </div>
-  {% endif %}
-</section>
+  <section class="card">
+    <h3>Timeline</h3>
+    <div id="timeline"{% if live %} sse-swap="timeline"{% endif %}>
+      {% include "_timeline.html" %}
+    </div>
+  </section>
+</div>
 
 {% if plan_html %}
 <section class="card">

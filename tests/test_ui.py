@@ -151,7 +151,7 @@ def test_post_approve_and_retry_spawn(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
     run_dir = _seed_run(tmp_path, "r1", status="running")
     gen = views.timeline_events(
-        tmp_path, "r1", render=lambda s: f"steps:{len(s.steps)}", interval=0.01
+        tmp_path, "r1", render=lambda s: [("timeline", f"steps:{len(s.steps)}")], interval=0.01
     )
     first = next(gen)
     assert "steps:1" in first
@@ -170,11 +170,25 @@ def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
 def test_timeline_events_stops_on_paused(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1", status="awaiting_plan_approval", pending_gate="plan")
     gen = views.timeline_events(
-        tmp_path, "r1", render=lambda s: "x", interval=0.01
+        tmp_path, "r1", render=lambda s: [("timeline", "x")], interval=0.01
     )
     assert next(gen)  # emits current timeline once
     with pytest.raises(StopIteration):
         next(gen)  # then stops because status is paused
+
+
+def test_run_events_emits_timeline_and_runhead(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "paused", status="awaiting_plan_approval", pending_gate="plan")
+    client = TestClient(create_app(tmp_path))
+    resp = client.get("/runs/paused/events")
+
+    assert "event: timeline" in resp.text
+    assert "event: runhead" in resp.text
+
+    frames = resp.text.split("\n\n")
+    runhead = next(f for f in frames if f.startswith("event: runhead"))
+    assert "Approve" in runhead
+    assert "Reject" in runhead
 
 
 def test_filter_runs_unit(tmp_path: Path) -> None:

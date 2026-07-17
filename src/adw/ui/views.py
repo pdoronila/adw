@@ -168,14 +168,15 @@ def _sse_frame(event: str, html: str) -> str:
 def timeline_events(
     repo: Path,
     run_id: str,
-    render: Callable[[rs.RunState], str],
+    render: Callable[[rs.RunState], list[tuple[str, str]]],
     interval: float = 0.5,
     max_seconds: float = 3600.0,
 ) -> Iterator[str]:
-    """Poll a run's state and yield a `timeline` SSE frame whenever it changes.
+    """Poll a run's state and yield SSE frames whenever it changes.
 
-    Always emits the current timeline once on first load so the client syncs
-    immediately, then yields again on each `updated_at` change. Stops after
+    Always emits the current state once on first load so the client syncs
+    immediately, then yields again on each `updated_at` change. Each tick yields
+    one SSE frame per `(event, html)` pair returned by the callback. Stops after
     emitting a terminal or paused status (the run won't advance without a human).
     Tolerates a not-yet-written state (sleep and retry); `max_seconds` caps it.
     """
@@ -185,7 +186,8 @@ def timeline_events(
         state = get_state(repo, run_id)
         if state is not None and state.updated_at != last_seen:
             last_seen = state.updated_at
-            yield _sse_frame("timeline", render(state))
+            for event, html in render(state):
+                yield _sse_frame(event, html)
             if state.status in TERMINAL or state.status in PAUSED:
                 return
         time.sleep(interval)
