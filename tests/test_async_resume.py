@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+import adw.workflows.steps as steps
 from adw.adapters.base import AgentAdapter, AgentInvocation
 from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.config import AdwConfig
@@ -18,6 +21,7 @@ def make_config() -> AdwConfig:
         {
             "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
             "workflow": {"max_fix_iterations": 1, "gate_order": ["marker"]},
+            "notify": {"webhook": "https://example.test/hook"},
         }
     )
 
@@ -123,3 +127,41 @@ def test_transcripts_numbered_across_resume(target_repo: Path) -> None:
     names = sorted(p.name for p in (ctx.run_dir / "agent").iterdir())
     # monotonic numbering, no collisions across the resume boundary
     assert names == ["01-scout.json", "02-plan.json", "03-build.json", "04-review.json"]
+
+
+def test_notify_fires_once_per_pause(
+    target_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fired: list[str] = []
+    monkeypatch.setattr(steps, "notify", lambda state, config: fired.append(state.status))
+    mocks: dict[str, AgentAdapter] = {
+        "scout": MockAdapter([ScriptedTurn(output="s")]),
+        "plan": MockAdapter([ScriptedTurn(output="# Plan")]),
+        "build": MockAdapter([ScriptedTurn(output="b", on_invoke=marker(target_repo))]),
+        "review": MockAdapter([ScriptedTurn(output="VERDICT: ship")]),
+    }
+    # scout+plan -> pause at plan gate (one notify)
+    FeatureWorkflow().run(build_ctx(target_repo, mocks))
+    # approve -> build+gates+review -> pause at final gate (one notify, no double-fire)
+    FeatureWorkflow().run(build_ctx(target_repo, mocks, decision="approve"))
+    # approve -> ships (no notify)
+    out = FeatureWorkflow().run(build_ctx(target_repo, mocks, decision="approve"))
+    assert out.status == "shipped"
+    assert fired == ["awaiting_plan_approval", "awaiting_final_review"]
+
+
+def test_notify_fires_on_failure(
+    target_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fired: list[str] = []
+    monkeypatch.setattr(steps, "notify", lambda state, config: fired.append(state.status))
+    # build never writes marker.txt, so the marker gate never passes and fixes exhaust
+    mocks: dict[str, AgentAdapter] = {
+        "scout": MockAdapter([ScriptedTurn(output="s")]),
+        "plan": MockAdapter([ScriptedTurn(output="# Plan")]),
+        "build": MockAdapter([ScriptedTurn(output="b"), ScriptedTurn(output="b2")]),
+    }
+    FeatureWorkflow().run(build_ctx(target_repo, mocks))  # pause at plan
+    out = FeatureWorkflow().run(build_ctx(target_repo, mocks, decision="approve"))
+    assert out.status == "failed"
+    assert fired == ["awaiting_plan_approval", "failed"]

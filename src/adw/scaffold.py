@@ -247,6 +247,10 @@ def render_config(profile: ProjectProfile, backend: str) -> str:
         '  branch_prefix: "adw/"',
         "  create_pr: false",
         "",
+        "# notify:                  # ping when a run pauses at a gate or fails",
+        "#   macos: true            # macOS notification via osascript",
+        '#   webhook: "https://..." # POST {run_id, status, workflow, task, repo}',
+        "",
     ]
     return "\n".join(lines)
 

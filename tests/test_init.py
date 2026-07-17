@@ -209,6 +209,29 @@ def test_init_unknown_project(tmp_path: Path) -> None:
     assert "could not detect" in result.output
 
 
+def test_doctor_echoes_notify_config(target_repo: Path) -> None:
+    (target_repo / "adw.yaml").write_text(
+        'gates:\n  test: {command: "true", timeout: 10}\n'
+        "notify:\n  macos: true\n  webhook: \"https://example.test/hook\"\n"
+    )
+    result = runner.invoke(app, ["doctor", "--repo", str(target_repo)])
+    assert "notify:" in result.output
+    assert "macos: True" in result.output
+    assert "https://example.test/hook" in result.output
+
+
+def test_doctor_notify_defaults(target_repo: Path) -> None:
+    (target_repo / "adw.yaml").write_text('gates:\n  test: {command: "true", timeout: 10}\n')
+    result = runner.invoke(app, ["doctor", "--repo", str(target_repo)])
+    assert "macos: False" in result.output
+    assert "webhook: none" in result.output
+
+
+def test_rendered_template_documents_notify() -> None:
+    text = render_config(ProjectProfile(ecosystem="unknown", gates={}, notes=[]), "claude-code")
+    assert "# notify:" in text
+
+
 def test_generated_yaml_is_valid_config() -> None:
     profiles = [
         ProjectProfile(
