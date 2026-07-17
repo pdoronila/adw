@@ -44,6 +44,22 @@ def test_typo_rejected() -> None:
         AdwConfig.model_validate({"gatez": {}})
 
 
+def test_notify_defaults_off() -> None:
+    config = AdwConfig()
+    assert config.notify.macos is False
+    assert config.notify.webhook is None
+
+
+def test_notify_parses_and_rejects_typos() -> None:
+    config = AdwConfig.model_validate(
+        {"notify": {"macos": True, "webhook": "https://x"}}
+    )
+    assert config.notify.macos is True
+    assert config.notify.webhook == "https://x"
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"notify": {"webook": "https://x"}})
+
+
 def test_merge_precedence(tmp_path: Path) -> None:
     global_path = tmp_path / "global.yaml"
     global_path.write_text(

@@ -17,6 +17,7 @@ import typer
 from adw import human, prompts
 from adw.nodes import code_node, git_ops
 from adw.nodes.code_node import GateResult
+from adw.notify import notify
 from adw.state.run_state import save_state
 from adw.workflows.base import RunOutcome, WorkflowContext
 
@@ -27,6 +28,7 @@ def fail(
     ctx.state.status = "failed"
     ctx.state.outcome_detail = f"{step}: {reason}"
     save_state(ctx.state, ctx.run_dir)
+    notify(ctx.state, ctx.config)
     return RunOutcome("failed", reason, hints=hints or [])
 
 
@@ -164,6 +166,7 @@ def approve_gate(
         state.status = "awaiting_plan_approval"
         state.pending_gate = "plan"
         save_state(state, ctx.run_dir)
+        notify(state, ctx.config)
         return RunOutcome(
             "paused",
             "awaiting plan approval",
@@ -402,6 +405,7 @@ def final_gate(ctx: WorkflowContext) -> RunOutcome | None:
         state.status = "awaiting_final_review"
         state.pending_gate = "final"
         save_state(state, ctx.run_dir)
+        notify(state, ctx.config)
         return RunOutcome(
             "paused",
             "awaiting final review",
