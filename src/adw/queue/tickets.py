@@ -6,7 +6,7 @@ os.rename calls, which double as the lock.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +30,7 @@ class Ticket:
     priority: int = DEFAULT_PRIORITY
     repo: Path | None = None
     source_run: str | None = None  # run id that auto-filed this ticket; None for human-created
+    blocked_by: list[str] = field(default_factory=list)  # ticket stems that must be in done/
 
     @property
     def task(self) -> str:
@@ -61,6 +62,9 @@ def parse_ticket(path: Path) -> Ticket:
     meta: dict[str, Any] = yaml.safe_load(parts[1]) or {}
     if "title" not in meta:
         raise TicketError(f"{path}: frontmatter must include 'title'")
+    raw_blocked = meta.get("blocked_by") or []
+    if isinstance(raw_blocked, str):
+        raw_blocked = [raw_blocked]
     return Ticket(
         path=path,
         workflow=str(meta.get("workflow", "feature")),
@@ -69,6 +73,7 @@ def parse_ticket(path: Path) -> Ticket:
         priority=int(meta.get("priority", DEFAULT_PRIORITY)),
         repo=Path(meta["repo"]).expanduser() if meta.get("repo") else None,
         source_run=str(meta["source_run"]) if meta.get("source_run") else None,
+        blocked_by=[str(b) for b in raw_blocked],
     )
 
 
@@ -80,6 +85,7 @@ def write_ticket(
     priority: int = DEFAULT_PRIORITY,
     target_repo: Path | None = None,
     source_run: str | None = None,
+    blocked_by: list[str] | None = None,
 ) -> Path:
     ensure_dirs(repo)
     from adw.state.run_state import slugify
@@ -89,6 +95,8 @@ def write_ticket(
         meta["repo"] = str(target_repo)
     if source_run is not None:
         meta["source_run"] = source_run
+    if blocked_by:
+        meta["blocked_by"] = list(blocked_by)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     queue_dir = tickets_root(repo) / "queue"
     stem = f"{stamp}-{slugify(title)}"
@@ -121,10 +129,65 @@ def list_tickets(repo: Path, state: str = "queue") -> list[Ticket]:
     return [ticket for _, _, ticket in scored]
 
 
+def done_stems(repo: Path) -> set[str]:
+    """Stems of every ticket in done/ — the set that satisfies blocked_by entries."""
+    return {p.stem for p in (tickets_root(repo) / "done").glob("*.md")}
+
+
+def pending_blockers(ticket: Ticket, done: set[str]) -> list[str]:
+    """Blockers not yet satisfied (a blocker is satisfied iff its stem is in done/)."""
+    return [b for b in ticket.blocked_by if b not in done]
+
+
+def _find_cycle(tickets: list[Ticket]) -> list[str] | None:
+    """Find a blocked_by cycle among these tickets, as a list of stems, or None.
+
+    Only edges between tickets in the list matter — a blocker outside the queue
+    (done, failed, in-flight, or nonexistent) can never form a cycle.
+    """
+    ids = {t.id for t in tickets}
+    graph = {t.id: [b for b in t.blocked_by if b in ids] for t in tickets}
+    color = dict.fromkeys(graph, 0)  # 0 white, 1 grey (on path), 2 black
+    for start in graph:
+        if color[start]:
+            continue
+        color[start] = 1
+        path = [start]
+        stack = [(start, iter(graph[start]))]
+        while stack:
+            node, neighbors = stack[-1]
+            for nxt in neighbors:
+                if color[nxt] == 1:  # back-edge: cycle from nxt to the path tip
+                    return path[path.index(nxt):]
+                if color[nxt] == 0:
+                    color[nxt] = 1
+                    path.append(nxt)
+                    stack.append((nxt, iter(graph[nxt])))
+                    break
+            else:
+                color[node] = 2
+                path.pop()
+                stack.pop()
+    return None
+
+
 def claim_next(repo: Path) -> Ticket | None:
-    """Atomically move the highest-priority ticket into in_progress and return it."""
+    """Atomically move the highest-priority claimable ticket into in_progress and return it.
+
+    Tickets whose blockers are not all in done/ are skipped (priority order among
+    the rest is unchanged); the rename remains the sole lock. If nothing is
+    claimable but blocked tickets remain, a dependency cycle among queued tickets
+    raises TicketError; otherwise returns None (callers inspect queue/ to tell
+    "empty" from "all blocked").
+    """
     ensure_dirs(repo)
-    for ticket in list_tickets(repo, "queue"):
+    done = done_stems(repo)
+    queued = list_tickets(repo, "queue")
+    blocked: list[Ticket] = []
+    for ticket in queued:
+        if pending_blockers(ticket, done):
+            blocked.append(ticket)
+            continue
         target = tickets_root(repo) / "in_progress" / ticket.path.name
         try:
             ticket.path.rename(target)
@@ -132,6 +195,12 @@ def claim_next(repo: Path) -> Ticket | None:
             continue
         ticket.path = target
         return ticket
+    if blocked:
+        cycle = _find_cycle(queued)
+        if cycle:
+            raise TicketError(
+                "dependency cycle among queued tickets: " + " -> ".join(cycle + cycle[:1])
+            )
     return None
 
 

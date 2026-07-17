@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import typer
@@ -34,6 +35,9 @@ app.add_typer(ticket_app, name="ticket")
 app.add_typer(sandbox_app, name="sandbox")
 
 REPO_OPT = typer.Option(Path("."), "--repo", help="Target repository", resolve_path=True)
+BLOCKED_BY_OPT = typer.Option(
+    None, "--blocked-by", help="Ticket stem this ticket waits on (repeatable)"
+)
 
 
 def _load(repo: Path) -> AdwConfig:
@@ -688,12 +692,20 @@ def ticket_new(
     priority: int = typer.Option(ticket_mod.DEFAULT_PRIORITY, help="Lower runs sooner"),
     body: str = typer.Option("", help="Ticket body (plain language task description)"),
     edit: bool = typer.Option(False, help="Open the ticket in $EDITOR after creating"),
+    blocked_by: list[str] = BLOCKED_BY_OPT,
     repo: Path = REPO_OPT,
 ) -> None:
     """Create a ticket in the queue."""
     if workflow != "auto":
         get_workflow(workflow)  # validate name early ('auto' resolves at process time)
-    path = ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=priority)
+    if blocked_by:
+        known = {t.id for state in ticket_mod.STATES for t in ticket_mod.list_tickets(repo, state)}
+        for stem in blocked_by:
+            if stem not in known:
+                typer.secho(f"blocker '{stem}' does not match any existing ticket", fg="yellow")
+    path = ticket_mod.write_ticket(
+        repo, title, body, workflow=workflow, priority=priority, blocked_by=blocked_by or None
+    )
     typer.echo(f"created {path}")
     if edit:
         subprocess.run([os.environ.get("EDITOR", "vi"), str(path)])
@@ -782,11 +794,17 @@ def queue_list(
             )
         )
         return
+    done = ticket_mod.done_stems(repo)
     for state in ticket_mod.STATES:
         entries = ticket_mod.list_tickets(repo, state)
         typer.secho(f"{state} ({len(entries)})", bold=True)
         for ticket in entries:
-            typer.echo(f"  p{ticket.priority} [{ticket.workflow}] {ticket.title}")
+            line = f"  p{ticket.priority} [{ticket.workflow}] {ticket.title}"
+            if state == "queue":
+                pending = ticket_mod.pending_blockers(ticket, done)
+                if pending:
+                    line += f"  [blocked by: {', '.join(pending)}]"
+            typer.echo(line)
 
 
 def _process_ticket(
@@ -837,9 +855,22 @@ def queue_process(
 
     processed = 0
     while True:
-        ticket = ticket_mod.claim_next(repo)
+        try:
+            ticket = ticket_mod.claim_next(repo)
+        except ticket_mod.TicketError as exc:
+            typer.secho(str(exc), fg="red")
+            raise typer.Exit(1) from exc
         if ticket is None:
-            if processed == 0:
+            remaining = ticket_mod.list_tickets(repo, "queue")
+            if remaining:
+                done = ticket_mod.done_stems(repo)
+                typer.secho(
+                    f"{len(remaining)} ticket(s) remain blocked on unfinished blockers:",
+                    fg="yellow",
+                )
+                for t in remaining:
+                    typer.echo(f"  {t.id} <- {', '.join(ticket_mod.pending_blockers(t, done))}")
+            elif processed == 0:
                 typer.echo("queue is empty")
             break
         _process_ticket(ticket, repo, auto_approve_plan, yes)
@@ -938,8 +969,17 @@ def _watch_loop(
     results: list[tuple[str, str]] = []
 
     def worker() -> None:
+        last_err: str | None = None
         while not stop.is_set():
-            ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
+            try:
+                ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
+            except ticket_mod.TicketError as exc:
+                msg = str(exc)
+                if msg != last_err:  # non-fatal: print once per distinct message, keep watching
+                    typer.secho(msg, fg="red")
+                    last_err = msg
+                stop.wait(interval)
+                continue
             if ticket is None:
                 stop.wait(interval)
                 continue
@@ -962,12 +1002,24 @@ def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bo
     from concurrent.futures import ThreadPoolExecutor
 
     results: list[tuple[str, str]] = []
+    errors: list[str] = []
 
     def worker() -> None:
         while True:
-            ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
-            if ticket is None:
+            try:
+                ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
+            except ticket_mod.TicketError as exc:
+                errors.append(str(exc))
                 return
+            if ticket is None:
+                queue_dir = ticket_mod.tickets_root(repo) / "queue"
+                in_flight = ticket_mod.tickets_root(repo) / "in_progress"
+                if not any(queue_dir.glob("*.md")):
+                    return  # truly drained
+                if not any(in_flight.glob("*.md")):
+                    return  # remaining are blocked and nothing in flight can unblock them
+                time.sleep(0.2)  # a sibling's in-flight ticket may unblock more
+                continue
             state = _process_ticket(ticket, repo, auto_approve_plan, yes)
             results.append((ticket.title, state.status))
 
@@ -975,8 +1027,20 @@ def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bo
         for future in [pool.submit(worker) for _ in range(workers)]:
             future.result()
 
+    if errors:
+        typer.secho(errors[0], fg="red")
+        raise typer.Exit(1)
+    remaining = ticket_mod.list_tickets(repo, "queue")
+    if remaining:
+        done = ticket_mod.done_stems(repo)
+        typer.secho(
+            f"{len(remaining)} ticket(s) remain blocked on unfinished blockers:", fg="yellow"
+        )
+        for t in remaining:
+            typer.echo(f"  {t.id} <- {', '.join(ticket_mod.pending_blockers(t, done))}")
     if not results:
-        typer.echo("queue is empty")
+        if not remaining:
+            typer.echo("queue is empty")
         return
     typer.secho(f"\nprocessed {len(results)} tickets:", bold=True)
     for title, status in results:

@@ -108,6 +108,48 @@ def test_watch_respects_parallel_cap(tmp_path, monkeypatch) -> None:
     assert state["max"] == 2  # both workers ran, never more than the cap
 
 
+def test_parallel_drain_respects_blockers(tmp_path, monkeypatch) -> None:
+    lock = threading.Lock()
+    events: list[tuple[str, str]] = []
+
+    def fake_process(ticket, repo, auto_approve_plan, yes):
+        with lock:
+            events.append(("start", ticket.title))
+        time.sleep(0.1)
+        with lock:  # record before the rename so a dependent's start can't be logged first
+            events.append(("finish", ticket.title))
+        ticket_mod.finish(ticket, repo, "shipped", "test", "r0")
+        return SimpleNamespace(status="shipped")
+
+    monkeypatch.setattr(cli, "_process_ticket", fake_process)
+    a = ticket_mod.write_ticket(tmp_path, "task a", "body")
+    ticket_mod.write_ticket(tmp_path, "task b", "body", blocked_by=[a.stem])
+    ticket_mod.write_ticket(tmp_path, "task c", "body")
+
+    cli._process_parallel(tmp_path, 2, False, True)
+
+    done = tmp_path / ".adw" / "tickets" / "done"
+    assert len(list(done.glob("*.md"))) == 3
+    assert events.index(("finish", "task a")) < events.index(("start", "task b"))
+
+
+def test_parallel_all_blocked_exits_cleanly(tmp_path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_process(ticket, repo, auto_approve_plan, yes):
+        calls.append(ticket.title)
+        return SimpleNamespace(status="shipped")
+
+    monkeypatch.setattr(cli, "_process_ticket", fake_process)
+    ticket_mod.write_ticket(tmp_path, "stuck", "body", blocked_by=["no-such-stem"])
+
+    cli._process_parallel(tmp_path, 2, False, True)
+
+    assert calls == []
+    queue = tmp_path / ".adw" / "tickets" / "queue"
+    assert len(list(queue.glob("*.md"))) == 1
+
+
 def test_watch_clean_shutdown(tmp_path, monkeypatch) -> None:
     stop = threading.Event()
 
