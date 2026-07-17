@@ -104,6 +104,7 @@ def create_app(repo: Path) -> FastAPI:
                 "review_html": views.render_markdown_file(run_dir, "review.md"),
                 "gate_rounds": _gate_rounds(state),
                 "gate_logs": views.gate_logs(run_dir),
+                "changed_files": views.changed_files(state),
                 "transcripts": views.agent_transcripts(run_dir),
                 "live": state.status not in views.TERMINAL and state.status not in views.PAUSED,
             },

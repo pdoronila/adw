@@ -15,6 +15,7 @@ from adw.adapters import ADAPTERS, get_adapter
 from adw.adapters.base import AgentInvocation
 from adw.config import AdwConfig, load_config
 from adw.exec_env import make_env
+from adw.nodes import git_ops
 from adw.nodes.agent_node import AgentRunner
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
@@ -164,9 +165,7 @@ def run(
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
-def _race(
-    workflow: str, task: str, repo: Path, config: AdwConfig, n: int
-) -> rs.RunState | None:
+def _race(workflow: str, task: str, repo: Path, config: AdwConfig, n: int) -> rs.RunState | None:
     """Run N isolated candidates concurrently; the first to ship wins.
 
     Requires worktree/container isolation so candidates don't collide. Candidates
@@ -181,9 +180,7 @@ def _race(
     typer.secho(f"racing {n} candidates for: {task}", bold=True)
 
     def candidate(i: int) -> rs.RunState:
-        return _execute(
-            workflow, task, repo, config, True, True, run_suffix=f"-r{i}"
-        )
+        return _execute(workflow, task, repo, config, True, True, run_suffix=f"-r{i}")
 
     winner: rs.RunState | None = None
     others: list[rs.RunState] = []
@@ -305,13 +302,40 @@ def status(
     run_id: str = typer.Argument(None),
     repo: Path = REPO_OPT,
     json_output: bool = typer.Option(False, "--json", help="Print the runs list as JSON."),
+    diff: bool = typer.Option(
+        False, "--diff", help="Print git diff base_branch..work_branch for the run."
+    ),
 ) -> None:
     """Show recent runs, or full detail for one run."""
+    if diff and not run_id:
+        typer.secho("--diff requires a run id", fg="red", err=True)
+        raise typer.Exit(1)
     if run_id:
         run_dir = rs.runs_root(repo) / run_id
         if not (run_dir / "state.json").is_file():
             typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
             raise typer.Exit(1)
+        if diff:
+            state = rs.load_state(run_dir)
+            target = Path(state.repo)
+            if not state.base_branch or not state.work_branch:
+                typer.secho(f"run {run_id!r} has no work branch yet (no diff)", fg="red", err=True)
+                raise typer.Exit(1)
+            if not target.is_dir() or not git_ops.is_git_repo(target):
+                typer.secho(f"repo {state.repo!r} not found or not a git repo", fg="red", err=True)
+                raise typer.Exit(1)
+            if not git_ops.branch_exists(target, state.work_branch) or not git_ops.branch_exists(
+                target, state.base_branch
+            ):
+                typer.secho(
+                    f"branch {state.work_branch!r} (or base {state.base_branch!r}) no longer exists"
+                    " — it may have been deleted after reject",
+                    fg="red",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            typer.echo(git_ops.branch_diff(target, state.base_branch, state.work_branch), nl=False)
+            return
         typer.echo(json.dumps(json.loads((run_dir / "state.json").read_text()), indent=2))
         return
     states = rs.list_runs(repo)
@@ -497,9 +521,7 @@ def ui(
 
         from adw.ui.server import create_app
     except ImportError as exc:
-        typer.secho(
-            "adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red"
-        )
+        typer.secho("adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red")
         raise typer.Exit(2) from exc
     app_ = create_app(repo)
     if not no_open:
@@ -519,9 +541,11 @@ def doctor(repo: Path = REPO_OPT) -> None:
         binary = config.backends.for_backend(name).binary
         path = shutil.which(binary)
         if path:
-            version = subprocess.run(
-                [binary, "--version"], capture_output=True, text=True
-            ).stdout.strip().splitlines()
+            version = (
+                subprocess.run([binary, "--version"], capture_output=True, text=True)
+                .stdout.strip()
+                .splitlines()
+            )
             typer.secho(f"  ✓ {name:<12} {version[0] if version else path}", fg="green")
         else:
             typer.secho(f"  ✗ {name:<12} binary {binary!r} not on PATH", fg="yellow")
