@@ -10,7 +10,7 @@ agents:
   default: {backend: claude-code, model: opus}
   roles:
     plan:   {backend: claude-code, model: fable}
-    build:  {backend: claude-code, model: opus}
+    build:  {backend: claude-code, model: fable}
     review: {backend: claude-code, model: opus}
 
 workflow:
