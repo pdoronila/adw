@@ -133,3 +133,32 @@ def finish(ticket: Ticket, repo: Path, outcome: str, detail: str, run_id: str) -
     ticket.path.rename(target)
     ticket.path = target
     return target
+
+
+def find_failed(repo: Path, needle: str) -> Ticket:
+    """Locate one failed ticket by exact stem, or unique substring of stem/title."""
+    candidates = list_tickets(repo, "failed")
+    for ticket in candidates:
+        if ticket.path.stem == needle:
+            return ticket
+    matches = [
+        t for t in candidates
+        if needle in t.path.stem or needle in t.title
+    ]
+    if not matches:
+        raise TicketError(f"no failed ticket matches {needle!r}")
+    if len(matches) > 1:
+        names = ", ".join(t.path.stem for t in matches)
+        raise TicketError(f"ambiguous match for {needle!r}: {names}")
+    return matches[0]
+
+
+def requeue(repo: Path, ticket: Ticket) -> Path:
+    """Move a failed ticket back to queue/, stripping any appended '## Result' section."""
+    text = ticket.path.read_text()
+    clean_text, _, _ = text.partition("\n\n## Result\n")
+    ticket.path.write_text(clean_text if clean_text.endswith("\n") else clean_text + "\n")
+    target = tickets_root(repo) / "queue" / ticket.path.name
+    ticket.path.rename(target)
+    ticket.path = target
+    return target
