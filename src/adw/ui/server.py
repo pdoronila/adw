@@ -6,12 +6,15 @@ writes shell out through `runner` (detached CLI) or `tickets` directly.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
@@ -20,13 +23,29 @@ from adw.ui import runner, views
 _HERE = Path(__file__).parent
 
 
+class _NoCacheStaticFiles(StaticFiles):
+    """Static files with `Cache-Control: no-cache` so browsers revalidate via ETag."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _asset_version(static_dir: Path) -> str:
+    """Content hash of all static assets (not mtime — installs can normalize mtimes)."""
+    blobs = sorted(p.name.encode() + p.read_bytes() for p in static_dir.iterdir() if p.is_file())
+    return hashlib.md5(b"".join(blobs)).hexdigest()[:8]
+
+
 def create_app(repo: Path) -> FastAPI:
     app = FastAPI(title="adw")
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals["pill_class"] = views.pill_class
     templates.env.globals["humanize_ts"] = views.humanize_ts
     templates.env.globals["clock_ts"] = views.clock_ts
-    app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    templates.env.globals["asset_v"] = _asset_version(_HERE / "static")
+    app.mount("/static", _NoCacheStaticFiles(directory=str(_HERE / "static")), name="static")
 
     def _board() -> dict[str, list[ticket_mod.Ticket]]:
         return {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}

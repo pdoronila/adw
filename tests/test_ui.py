@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -444,6 +445,16 @@ def test_static_assets_served(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     for asset in ("htmx.min.js", "sse.js", "app.js", "app.css"):
         assert client.get(f"/static/{asset}").status_code == 200
+
+
+def test_static_assets_cache_busted(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    html = client.get("/").text
+    # every local asset must carry a content-derived version query so browsers
+    # can't pair new HTML with a stale cached script
+    for asset in ("app.css", "htmx.min.js", "sse.js", "app.js"):
+        assert re.search(rf"/static/{re.escape(asset)}\?v=\w+", html), asset
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
 
 
 def test_humanize_ts() -> None:
