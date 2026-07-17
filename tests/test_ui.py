@@ -327,11 +327,38 @@ def test_run_events_emits_timeline_and_runhead(tmp_path: Path) -> None:
 
     assert "event: timeline" in resp.text
     assert "event: runhead" in resp.text
+    assert "step-time" in resp.text  # clock_ts helper resolves on the SSE render path
 
     frames = resp.text.split("\n\n")
     runhead = next(f for f in frames if f.startswith("event: runhead"))
     assert "Approve" in runhead
     assert "Reject" in runhead
+
+
+def test_run_detail_shows_step_timestamps(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    state = views.get_state(tmp_path, "r1")
+    assert state is not None
+    plan = state.step("plan")
+    assert plan.started_at is not None and plan.ended_at is not None
+
+    body = TestClient(create_app(tmp_path)).get("/runs/r1").text
+    assert "step-time" in body
+    assert views.clock_ts(plan.started_at) in body
+    assert views.clock_ts(plan.ended_at) in body
+
+
+def test_timeline_pending_step_has_no_timestamp(tmp_path: Path) -> None:
+    run_dir = _seed_run(tmp_path, "r1")
+    state = views.get_state(tmp_path, "r1")
+    assert state is not None
+    state.step("build")  # pending step: no start_step, so started_at is None
+    save_state(state, run_dir)
+
+    resp = TestClient(create_app(tmp_path)).get("/runs/r1")
+    assert resp.status_code == 200
+    assert "build" in resp.text  # pending step renders without crashing
+    assert resp.text.count("step-time") == 1  # only the completed plan step
 
 
 def test_filter_runs_unit(tmp_path: Path) -> None:
@@ -404,6 +431,13 @@ def test_humanize_ts() -> None:
     assert views.humanize_ts(now - timedelta(days=2)) == "2d ago"
     old = now - timedelta(days=30)
     assert views.humanize_ts(old) == old.date().isoformat()
+
+
+def test_clock_ts() -> None:
+    from datetime import UTC, datetime
+
+    dt = datetime(2026, 7, 17, 18, 44, 11, tzinfo=UTC)
+    assert views.clock_ts(dt) == "18:44:11"
 
 
 def test_python_m_adw_version() -> None:

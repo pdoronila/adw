@@ -436,6 +436,7 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
 .timeline > li.muted { padding: 0.3rem 0; }
 .step-name { font-weight: 600; font-size: var(--text-sm); }
 .step-detail { font-size: var(--text-xs); }
+.step-time { font-size: var(--text-xs); margin-left: auto; white-space: nowrap; }
 
 /* ---------- run detail ---------- */
 

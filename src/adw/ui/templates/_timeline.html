@@ -4,6 +4,7 @@
     <span class="pill pill-step-{{ step.status }}">{{ step.status }}</span>
     <span class="step-name">{{ step.name }}</span>
     {% if step.detail %}<span class="step-detail muted">{{ step.detail }}</span>{% endif %}
+    {% if step.started_at %}<span class="step-time muted mono" title="{{ step.started_at.isoformat() }}{% if step.ended_at %} → {{ step.ended_at.isoformat() }}{% endif %}">{{ clock_ts(step.started_at) }}{% if step.ended_at %}–{{ clock_ts(step.ended_at) }}{% endif %}</span>{% endif %}
   </li>
   {% else %}
   <li class="muted">no steps yet</li>
