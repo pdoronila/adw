@@ -15,6 +15,7 @@ from pathlib import Path
 
 import markdown  # type: ignore[import-untyped]
 
+from adw.nodes import git_ops
 from adw.state import run_state as rs
 from adw.workflows import WORKFLOWS
 
@@ -28,9 +29,10 @@ PILL_STATUS: dict[str, str] = {
     "shipped": "shipped",
     "failed": "failed",
     "rejected": "rejected",
+    "cancelled": "cancelled",
 }
 
-TERMINAL = {"shipped", "failed", "rejected"}
+TERMINAL = {"shipped", "failed", "rejected", "cancelled"}
 PAUSED = {"paused", "awaiting_plan_approval", "awaiting_final_review"}
 
 # Toast keys carried through `?toast=<key>` redirect params. Only known keys
@@ -40,7 +42,10 @@ TOAST_MESSAGES: dict[str, str] = {
     "approved": "Run approved — resuming",
     "rejected": "Run rejected",
     "retry-started": "Retry started",
+    "cancel-requested": "Cancel requested",
     "ticket-created": "Ticket created",
+    "ticket-deleted": "Ticket deleted",
+    "ticket-requeued": "Ticket requeued",
     "queue-processing": "Queue processing started",
 }
 
@@ -152,6 +157,47 @@ def render_markdown_file(run_dir: Path, name: str) -> str | None:
     text = path.read_text()
     html: str = markdown.markdown(text, extensions=["fenced_code", "tables"])
     return html
+
+
+def changed_files(state: rs.RunState, patch_cap: int = 20_000) -> list[dict[str, object]]:
+    """Per-file diff of base_branch..work_branch: {path, added, removed, patch}.
+
+    Empty list when either branch is unset (run hasn't branched yet), missing
+    (rejected runs delete the work branch), or the repo is gone.
+    """
+    repo = Path(state.repo)
+    if not (
+        repo.is_dir()
+        and git_ops.is_git_repo(repo)
+        and git_ops.branch_exists(repo, state.base_branch)
+        and git_ops.branch_exists(repo, state.work_branch)
+    ):
+        return []
+    raw = git_ops.branch_diff(repo, state.base_branch, state.work_branch)
+    if not raw:
+        return []
+
+    files: list[dict[str, object]] = []
+    chunk: list[str] = []
+
+    def flush() -> None:
+        if not chunk:
+            return
+        header = chunk[0]
+        path = header.rsplit(" b/", 1)[-1].strip()
+        added = sum(1 for line in chunk if line.startswith("+") and not line.startswith("+++ "))
+        removed = sum(1 for line in chunk if line.startswith("-") and not line.startswith("--- "))
+        patch = "\n".join(chunk)[:patch_cap]
+        files.append({"path": path, "added": added, "removed": removed, "patch": patch})
+
+    for line in raw.splitlines():
+        if line.startswith("diff --git "):
+            flush()
+            chunk = [line]
+        elif chunk:
+            chunk.append(line)
+    flush()
+    return files
 
 
 def workflow_options() -> list[tuple[str, str]]:

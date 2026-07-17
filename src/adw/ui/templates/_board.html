@@ -8,6 +8,16 @@
       <div class="ticket-title">{{ ticket.title }}</div>
       {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
       <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
+      <div class="ticket-actions">
+        {% if state == "failed" %}
+        <form method="post" action="/tickets/{{ ticket.id }}/requeue">
+          <button type="submit" class="ghost">Requeue</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/tickets/{{ ticket.id }}/delete">
+          <button type="submit" class="danger">Remove</button>
+        </form>
+      </div>
     </div>
     {% else %}
     <div class="empty empty-sm">no tickets</div>

@@ -23,6 +23,7 @@ RunStatus = Literal[
     "shipped",
     "failed",
     "rejected",
+    "cancelled",
 ]
 StepStatus = Literal["pending", "running", "ok", "failed", "skipped"]
 
@@ -49,6 +50,8 @@ class RunState(BaseModel):
     base_branch: str = ""
     work_branch: str = ""
     worktree: str | None = None  # set when isolation.type == "worktree"
+    pid: int | None = None    # process id of the run's CLI process
+    pgid: int | None = None   # its process group (start_new_session makes it a leader)
     build_session_id: str | None = None
     fix_attempts: int = 0
     review_rounds: int = 0

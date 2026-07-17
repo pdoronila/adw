@@ -104,6 +104,7 @@ def create_app(repo: Path) -> FastAPI:
                 "review_html": views.render_markdown_file(run_dir, "review.md"),
                 "gate_rounds": _gate_rounds(state),
                 "gate_logs": views.gate_logs(run_dir),
+                "changed_files": views.changed_files(state),
                 "transcripts": views.agent_transcripts(run_dir),
                 "live": state.status not in views.TERMINAL and state.status not in views.PAUSED,
             },
@@ -150,6 +151,11 @@ def create_app(repo: Path) -> FastAPI:
         runner.retry_run(repo, run_id)
         return RedirectResponse(f"/runs/{run_id}?toast=retry-started", status_code=303)
 
+    @app.post("/runs/{run_id}/cancel")
+    def cancel_run(run_id: str) -> RedirectResponse:
+        runner.cancel_run(repo, run_id)
+        return RedirectResponse(f"/runs/{run_id}?toast=cancel-requested", status_code=303)
+
     @app.post("/tickets")
     def create_ticket(
         title: str = Form(...),
@@ -159,6 +165,24 @@ def create_app(repo: Path) -> FastAPI:
     ) -> RedirectResponse:
         ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=int(priority))
         return RedirectResponse("/?toast=ticket-created", status_code=303)
+
+    @app.post("/tickets/{ticket_id}/delete")
+    def delete_ticket(ticket_id: str) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id)
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticket_mod.remove(ticket)
+        return RedirectResponse("/?toast=ticket-deleted", status_code=303)
+
+    @app.post("/tickets/{ticket_id}/requeue")
+    def requeue_ticket(ticket_id: str) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ("failed", "done"))
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticket_mod.requeue(repo, ticket)
+        return RedirectResponse("/?toast=ticket-requeued", status_code=303)
 
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:

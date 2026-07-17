@@ -28,6 +28,24 @@
 </section>
 {% endif %}
 
+{% if changed_files %}
+<section class="card">
+  <h3>Changes <span class="chip">{{ state.base_branch }}..{{ state.work_branch }}</span></h3>
+  {% for f in changed_files %}
+  <details>
+    <summary>
+      <span class="mono">{{ f.path }}</span>
+      <span class="chips">
+        <span class="chip">+{{ f.added }}</span>
+        <span class="chip">−{{ f.removed }}</span>
+      </span>
+    </summary>
+    <pre class="transcript">{{ f.patch }}</pre>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}
+
 {% if review_html %}
 <section class="card">
   <h3>Review</h3>

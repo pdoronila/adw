@@ -25,9 +25,16 @@ def _seed_run(
     run_id: str,
     status: str = "shipped",
     pending_gate: str | None = None,
+    state_repo: Path | None = None,
+    base_branch: str = "",
+    work_branch: str = "",
 ) -> Path:
     run_dir = create_run_dir(repo, run_id)
-    state = RunState(run_id=run_id, workflow="feature", task="add widget", repo=str(repo))
+    state = RunState(
+        run_id=run_id, workflow="feature", task="add widget", repo=str(state_repo or repo)
+    )
+    state.base_branch = base_branch
+    state.work_branch = work_branch
     state.start_step("plan")
     state.end_step("plan", "ok", detail="wrote plan.md")
     state.gate_results.append(
@@ -48,6 +55,73 @@ def _seed_run(
     }
     (run_dir / "agent" / "01-plan.json").write_text(json.dumps(artifact))
     return run_dir
+
+
+SCRIPT_LINE = "# <script>alert(1)</script>"
+
+
+def _build_feat_branch(target_repo: Path, work_branch: str = "feat") -> None:
+    """Add a `feat` branch modifying app.py by +2/−1 lines (incl. an HTML line)."""
+    subprocess.run(
+        ["git", "checkout", "-b", work_branch], cwd=target_repo, check=True, capture_output=True
+    )
+    (target_repo / "app.py").write_text(f"def hello():\n    {SCRIPT_LINE}\n    return 'howdy'\n")
+    subprocess.run(
+        ["git", "commit", "-am", "change greeting"],
+        cwd=target_repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "checkout", "main"], cwd=target_repo, check=True, capture_output=True)
+
+
+def test_changed_files_unit(target_repo: Path) -> None:
+    _build_feat_branch(target_repo)
+    state = RunState(run_id="r1", workflow="feature", task="t", repo=str(target_repo))
+    state.base_branch = "main"
+    state.work_branch = "feat"
+
+    files = views.changed_files(state)
+    assert len(files) == 1
+    assert files[0]["path"] == "app.py"
+    assert files[0]["added"] == 2
+    assert files[0]["removed"] == 1
+    assert "diff --git" in files[0]["patch"]  # type: ignore[operator]
+
+    # No diff when the run hasn't branched yet, or the branch doesn't exist.
+    state.work_branch = ""
+    assert views.changed_files(state) == []
+    state.work_branch = "nope"
+    assert views.changed_files(state) == []
+
+
+def test_run_detail_shows_changes_card(target_repo: Path) -> None:
+    _build_feat_branch(target_repo)
+    _seed_run(
+        target_repo,
+        "r1",
+        state_repo=target_repo,
+        base_branch="main",
+        work_branch="feat",
+    )
+
+    resp = TestClient(create_app(target_repo)).get("/runs/r1")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Changes" in body
+    assert "app.py" in body
+    assert "+2" in body
+    assert "−1" in body
+    # raw diff text is HTML-escaped (no |safe): the literal tag never appears
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_run_detail_no_changes_card_without_branch(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    resp = TestClient(create_app(tmp_path)).get("/runs/r1")
+    assert resp.status_code == 200
+    assert "<h3>Changes" not in resp.text
 
 
 def test_dashboard_lists_runs_tickets_and_workflows(tmp_path: Path) -> None:
@@ -83,6 +157,7 @@ def test_run_detail_renders_artifacts(tmp_path: Path) -> None:
 def test_action_buttons_by_status(tmp_path: Path) -> None:
     _seed_run(tmp_path, "paused", status="awaiting_plan_approval", pending_gate="plan")
     _seed_run(tmp_path, "broke", status="failed")
+    _seed_run(tmp_path, "live", status="running")
 
     client = TestClient(create_app(tmp_path))
     paused_body = client.get("/runs/paused").text
@@ -91,6 +166,10 @@ def test_action_buttons_by_status(tmp_path: Path) -> None:
 
     failed_body = client.get("/runs/broke").text
     assert "Retry" in failed_body
+    assert "Cancel" not in failed_body
+
+    live_body = client.get("/runs/live").text
+    assert "Cancel" in live_body
 
 
 def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
@@ -103,6 +182,58 @@ def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
     assert resp.headers["location"] == "/?toast=ticket-created"
     titles = [t.title for t in ticket_mod.list_tickets(tmp_path, "queue")]
     assert "New task" in titles
+
+
+def test_post_ticket_delete(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Delete me", "body")
+    stem = ticket_mod.list_tickets(tmp_path, "queue")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/delete")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?toast=ticket-deleted"
+    assert ticket_mod.list_tickets(tmp_path, "queue") == []
+
+
+def test_post_ticket_requeue(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Requeue me", "body")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "failed", "boom", "run-1")
+    stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/requeue")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?toast=ticket-requeued"
+    assert ticket_mod.list_tickets(tmp_path, "failed") == []
+    assert any(t.title == "Requeue me" for t in ticket_mod.list_tickets(tmp_path, "queue"))
+
+
+def test_post_ticket_delete_unknown_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    assert client.post("/tickets/nope/delete").status_code == 404
+    assert client.post("/tickets/nope/requeue").status_code == 404
+
+
+def test_board_renders_action_forms(tmp_path: Path) -> None:
+    # Seed one failed ticket first, then leave one in the queue.
+    ticket_mod.write_ticket(tmp_path, "doomed one", "")
+    failed = ticket_mod.claim_next(tmp_path)
+    assert failed is not None
+    ticket_mod.finish(failed, tmp_path, "failed", "boom", "run-1")
+    ticket_mod.write_ticket(tmp_path, "queued one", "")
+
+    queued_stem = ticket_mod.list_tickets(tmp_path, "queue")[0].path.stem
+    failed_stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+
+    client = TestClient(create_app(tmp_path))
+    body = client.get("/fragments/board").text
+    assert f"/tickets/{queued_stem}/delete" in body
+    assert f"/tickets/{failed_stem}/delete" in body
+    assert f"/tickets/{failed_stem}/requeue" in body
+    assert body.count("/requeue") == 1
+    assert "hx-" not in body
 
 
 def _install_fake_popen(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
@@ -148,6 +279,20 @@ def test_post_approve_and_retry_spawn(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "r1" in retry_argv
 
 
+def test_post_cancel_spawns_and_redirects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _install_fake_popen(monkeypatch)
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post("/runs/r1/cancel")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/runs/r1?toast=cancel-requested"
+    cancel_argv = captured[-1]
+    assert "cancel" in cancel_argv
+    assert "r1" in cancel_argv
+
+
 def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
     run_dir = _seed_run(tmp_path, "r1", status="running")
     gen = views.timeline_events(
@@ -169,9 +314,7 @@ def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
 
 def test_timeline_events_stops_on_paused(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1", status="awaiting_plan_approval", pending_gate="plan")
-    gen = views.timeline_events(
-        tmp_path, "r1", render=lambda s: [("timeline", "x")], interval=0.01
-    )
+    gen = views.timeline_events(tmp_path, "r1", render=lambda s: [("timeline", "x")], interval=0.01)
     assert next(gen)  # emits current timeline once
     with pytest.raises(StopIteration):
         next(gen)  # then stops because status is paused
@@ -242,6 +385,7 @@ def test_toast_rendering(tmp_path: Path) -> None:
     assert "Ticket created" in body
     bogus = client.get("/", params={"toast": "bogus"}).text
     assert 'id="toast"' not in bogus
+    assert views.toast_message("cancel-requested") == "Cancel requested"
 
 
 def test_static_assets_served(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from adw.adapters import ADAPTERS, get_adapter
 from adw.adapters.base import AgentInvocation
 from adw.config import AdwConfig, load_config
 from adw.exec_env import make_env
+from adw.nodes import git_ops
 from adw.nodes.agent_node import AgentRunner
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
@@ -46,6 +48,7 @@ _STATUS_COLOR = {
     "rejected": "yellow",
     "failed": "red",
     "paused": "cyan",
+    "cancelled": "yellow",
 }
 
 
@@ -92,6 +95,8 @@ def _execute(
         repo=str(repo),
         source_ticket_run=source_ticket_run,
     )
+    state.pid = os.getpid()
+    state.pgid = os.getpgid(0)
     rs.save_state(state, run_dir)
     env = make_env(config)
     ctx = WorkflowContext(
@@ -171,9 +176,7 @@ def run(
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
 
 
-def _race(
-    workflow: str, task: str, repo: Path, config: AdwConfig, n: int
-) -> rs.RunState | None:
+def _race(workflow: str, task: str, repo: Path, config: AdwConfig, n: int) -> rs.RunState | None:
     """Run N isolated candidates concurrently; the first to ship wins.
 
     Requires worktree/container isolation so candidates don't collide. Candidates
@@ -188,9 +191,7 @@ def _race(
     typer.secho(f"racing {n} candidates for: {task}", bold=True)
 
     def candidate(i: int) -> rs.RunState:
-        return _execute(
-            workflow, task, repo, config, True, True, run_suffix=f"-r{i}"
-        )
+        return _execute(workflow, task, repo, config, True, True, run_suffix=f"-r{i}")
 
     winner: rs.RunState | None = None
     others: list[rs.RunState] = []
@@ -312,13 +313,40 @@ def status(
     run_id: str = typer.Argument(None),
     repo: Path = REPO_OPT,
     json_output: bool = typer.Option(False, "--json", help="Print the runs list as JSON."),
+    diff: bool = typer.Option(
+        False, "--diff", help="Print git diff base_branch..work_branch for the run."
+    ),
 ) -> None:
     """Show recent runs, or full detail for one run."""
+    if diff and not run_id:
+        typer.secho("--diff requires a run id", fg="red", err=True)
+        raise typer.Exit(1)
     if run_id:
         run_dir = rs.runs_root(repo) / run_id
         if not (run_dir / "state.json").is_file():
             typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
             raise typer.Exit(1)
+        if diff:
+            state = rs.load_state(run_dir)
+            target = Path(state.repo)
+            if not state.base_branch or not state.work_branch:
+                typer.secho(f"run {run_id!r} has no work branch yet (no diff)", fg="red", err=True)
+                raise typer.Exit(1)
+            if not target.is_dir() or not git_ops.is_git_repo(target):
+                typer.secho(f"repo {state.repo!r} not found or not a git repo", fg="red", err=True)
+                raise typer.Exit(1)
+            if not git_ops.branch_exists(target, state.work_branch) or not git_ops.branch_exists(
+                target, state.base_branch
+            ):
+                typer.secho(
+                    f"branch {state.work_branch!r} (or base {state.base_branch!r}) no longer exists"
+                    " — it may have been deleted after reject",
+                    fg="red",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            typer.echo(git_ops.branch_diff(target, state.base_branch, state.work_branch), nl=False)
+            return
         typer.echo(json.dumps(json.loads((run_dir / "state.json").read_text()), indent=2))
         return
     states = rs.list_runs(repo)
@@ -466,6 +494,8 @@ def retry(
 
     state.status = "running"
     state.outcome_detail = ""
+    state.pid = os.getpid()
+    state.pgid = os.getpgid(0)
     for record in state.steps:
         if record.status == "failed":
             record.status = "pending"
@@ -492,6 +522,39 @@ def retry(
 
 
 @app.command()
+def cancel(
+    run_id: str = typer.Argument(help="Run id of a running run"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Cancel a running run: SIGTERM its process group, keep branch/worktree for salvage."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+    if state.status != "running":
+        typer.secho(f"run {run_id} is not running (status={state.status})", fg="red")
+        raise typer.Exit(1)
+
+    if state.pgid is None:
+        typer.secho(
+            f"run {run_id} has no recorded pgid; marking cancelled without signal", fg="yellow"
+        )
+    else:
+        try:
+            os.killpg(state.pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            typer.secho("process group already gone", fg="yellow")
+
+    state.status = "cancelled"
+    state.outcome_detail = "cancelled by user"
+    rs.save_state(state, run_dir)
+    typer.secho(f"■ cancelled: {run_id}", fg="yellow", bold=True)
+    if state.worktree:
+        typer.echo(f"  worktree kept for salvage: {state.worktree}")
+
+
+@app.command()
 def ui(
     repo: Path = REPO_OPT,
     port: int = typer.Option(8770, "--port"),
@@ -504,9 +567,7 @@ def ui(
 
         from adw.ui.server import create_app
     except ImportError as exc:
-        typer.secho(
-            "adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red"
-        )
+        typer.secho("adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red")
         raise typer.Exit(2) from exc
     app_ = create_app(repo)
     if not no_open:
@@ -526,9 +587,11 @@ def doctor(repo: Path = REPO_OPT) -> None:
         binary = config.backends.for_backend(name).binary
         path = shutil.which(binary)
         if path:
-            version = subprocess.run(
-                [binary, "--version"], capture_output=True, text=True
-            ).stdout.strip().splitlines()
+            version = (
+                subprocess.run([binary, "--version"], capture_output=True, text=True)
+                .stdout.strip()
+                .splitlines()
+            )
             typer.secho(f"  ✓ {name:<12} {version[0] if version else path}", fg="green")
         else:
             typer.secho(f"  ✗ {name:<12} binary {binary!r} not on PATH", fg="yellow")
@@ -580,6 +643,9 @@ def doctor(repo: Path = REPO_OPT) -> None:
             else:
                 typer.secho(f"  ✗ secret {secret} missing from env", fg="red")
                 failures += 1
+    typer.secho("notify:", bold=True)
+    typer.echo(f"  macos: {config.notify.macos}")
+    typer.echo(f"  webhook: {config.notify.webhook or 'none'}")
     raise typer.Exit(1 if failures else 0)
 
 
@@ -630,6 +696,69 @@ def ticket_new(
     typer.echo(f"created {path}")
     if edit:
         subprocess.run([os.environ.get("EDITOR", "vi"), str(path)])
+
+
+@ticket_app.command("edit")
+def ticket_edit(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Open a ticket in $EDITOR."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    subprocess.run([os.environ.get("EDITOR", "vi"), str(ticket.path)])
+
+
+@ticket_app.command("rm")
+def ticket_rm(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Delete a ticket."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    if not yes:
+        typer.confirm(f"delete {ticket.path.name}?", abort=True)
+    ticket_mod.remove(ticket)
+    typer.echo(f"deleted {ticket.path}")
+
+
+@ticket_app.command("bump")
+def ticket_bump(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    priority: int = typer.Option(..., help="Lower runs sooner"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Change a ticket's priority."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    ticket_mod.set_priority(ticket, priority)
+    typer.echo(f"set priority {priority} on {ticket.path.name}")
+
+
+@ticket_app.command("requeue")
+def ticket_requeue(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Move a failed or done ticket back to the queue."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref, ("failed", "done"))
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    path = ticket_mod.requeue(repo, ticket)
+    typer.echo(f"requeued {ticket.title} -> {path}")
 
 
 @queue_app.command("list")

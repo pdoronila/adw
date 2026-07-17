@@ -170,7 +170,16 @@ adw queue process --all -y   # drain the queue unattended
 adw queue retry <ticket>     # re-queue a failed ticket by name (or --all)
 ```
 
-Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended. Failed tickets can be re-queued with `adw queue retry <ticket-stem-or-substring>` (or `adw queue retry --all`), which strips the `## Result` section so the ticket parses cleanly again — the failure history stays in `.adw/runs/<run-id>/`.
+Groom tickets in any state (matched by id or an unambiguous substring of the stem/title):
+
+```bash
+adw ticket edit <ticket>            # open it in $EDITOR
+adw ticket rm <ticket> [-y]         # delete it (prompts unless -y)
+adw ticket bump <ticket> --priority 1   # rewrite its priority in place
+adw ticket requeue <ticket>         # move a failed OR done ticket back to the queue
+```
+
+Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended. Failed tickets can be re-queued with `adw queue retry <ticket-stem-or-substring>` (or `adw queue retry --all`), which strips the `## Result` section so the ticket parses cleanly again — the failure history stays in `.adw/runs/<run-id>/`. `adw ticket requeue` does the same but also accepts already-shipped tickets in `done/`, so you can re-run a completed ticket.
 
 ## Factory router
 
@@ -214,6 +223,18 @@ adw retry 20260716-...                       # re-runs from the failed step; com
 
 Like resume, retry skips every step already marked `ok`/`skipped` and only re-executes the failed step and everything after it.
 
+## Notifications
+
+Async and queued runs pause unattended at the engineer gates — a notification tells you a run needs you (or died) without watching the terminal. Add an optional `notify:` block to `adw.yaml`:
+
+```yaml
+notify:
+  macos: true                    # macOS notification via osascript (darwin only; no-op elsewhere)
+  webhook: "https://example/hook" # POST JSON {run_id, status, workflow, task, repo}, 3s timeout
+```
+
+A notification fires when a run enters `awaiting_plan_approval`, `awaiting_final_review`, or `failed`. Both channels are best-effort: a channel that fails (webhook down, `osascript` missing) is logged and skipped — a notification never fails a run. Absent the block, nothing is sent (the default).
+
 ## Web UI
 
 A local dashboard gives you the same runs, tickets, and gates without the terminal. Install the extra (developers can just `uv sync`):
@@ -223,7 +244,7 @@ pip install 'adw[ui]'
 adw ui                    # serves http://localhost:8770 and opens your browser
 ```
 
-It shows the runs table (searchable, filterable by status, auto-refreshing), the ticket board, and a live step timeline (streamed over SSE), with buttons to approve/reject paused runs, retry failed ones, start a run, file a ticket, and drain the queue. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` new run, `n` new ticket, `g` `d` back to the dashboard. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
+It shows the runs table (searchable, filterable by status, auto-refreshing), the ticket board, and a live step timeline (streamed over SSE), with buttons to approve/reject paused runs, retry failed ones, start a run, file a ticket, and drain the queue. Each ticket card has a Remove button, and failed cards also have a Requeue button. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` new run, `n` new ticket, `g` `d` back to the dashboard. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
 
 ## Isolation, parallelism & racing
 

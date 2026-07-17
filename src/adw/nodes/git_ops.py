@@ -77,6 +77,21 @@ def full_diff(repo: Path, base: str) -> str:
     return _git(repo, "diff", base, check=False).stdout
 
 
+def branch_exists(repo: Path, name: str) -> bool:
+    """True when `name` is a local branch. Empty names are never branches."""
+    if not name:
+        return False
+    return (
+        _git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}", check=False).returncode
+        == 0
+    )
+
+
+def branch_diff(repo: Path, base: str, work: str) -> str:
+    """Unified diff between two branches (`git diff base..work`)."""
+    return _git(repo, "diff", f"{base}..{work}", check=False).stdout
+
+
 def stage_all(repo: Path) -> None:
     """Stage everything so new files show up in diffs vs the base (.adw is ignored)."""
     _git(repo, "add", "-A")

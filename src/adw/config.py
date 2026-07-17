@@ -49,6 +49,11 @@ class ShipConfig(StrictModel):
     create_pr: bool = False
 
 
+class NotifyConfig(StrictModel):
+    macos: bool = False
+    webhook: str | None = None
+
+
 class IsolationConfig(StrictModel):
     # local: work in the main tree (default). worktree: a git worktree per run.
     # container: an Apple `container` per run (see ContainerEnv).
@@ -120,6 +125,7 @@ class AdwConfig(StrictModel):
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     isolation: IsolationConfig = Field(default_factory=IsolationConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
+    notify: NotifyConfig = Field(default_factory=NotifyConfig)
     # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
     experts: dict[str, str] = Field(default_factory=dict)
 

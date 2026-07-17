@@ -342,6 +342,7 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
 .pill-paused { background: var(--pause-bg); color: var(--pause-fg); }
 .pill-running { background: var(--info-bg); color: var(--info-fg); }
 .pill-rejected { background: var(--warn-bg); color: var(--warn-fg); }
+.pill-cancelled { background: var(--warn-bg); color: var(--warn-fg); }
 
 .pill-step-ok { background: var(--ok-bg); color: var(--ok-fg); }
 .pill-step-failed { background: var(--err-bg); color: var(--err-fg); }
@@ -389,6 +390,15 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-top: 0.3rem;
+}
+.ticket-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.ticket-actions button {
+  font-size: var(--text-xs);
+  padding: 0.3rem 0.6rem;
 }
 
 /* ---------- empty states ---------- */

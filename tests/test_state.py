@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from adw.state.run_state import (
@@ -48,6 +49,28 @@ def test_save_is_atomic_no_stray_tmp(tmp_path: Path) -> None:
         save_state(state, run_dir)
     leftovers = [p for p in run_dir.iterdir() if p.name.startswith(".state-")]
     assert leftovers == []
+
+
+def test_cancelled_status_and_pid_fields_roundtrip(tmp_path: Path) -> None:
+    run_dir = create_run_dir(tmp_path, "rc")
+    state = RunState(run_id="rc", workflow="feature", task="t", repo=str(tmp_path))
+    state.status = "cancelled"
+    state.pid = 123
+    state.pgid = 123
+    save_state(state, run_dir)
+    loaded = load_state(run_dir)
+    assert loaded.status == "cancelled"
+    assert loaded.pid == 123
+    assert loaded.pgid == 123
+
+    # An older state.json without pid/pgid keys still loads (fields default to None).
+    payload = json.loads((run_dir / "state.json").read_text())
+    del payload["pid"]
+    del payload["pgid"]
+    (run_dir / "state.json").write_text(json.dumps(payload))
+    reloaded = load_state(run_dir)
+    assert reloaded.pid is None
+    assert reloaded.pgid is None
 
 
 def test_list_runs_skips_junk(tmp_path: Path) -> None:

@@ -35,6 +35,10 @@ class Ticket:
     def task(self) -> str:
         return f"{self.title}\n\n{self.body}".strip()
 
+    @property
+    def id(self) -> str:
+        return self.path.stem
+
 
 def tickets_root(repo: Path) -> Path:
     return repo / ".adw" / "tickets"
@@ -147,9 +151,9 @@ def finish(ticket: Ticket, repo: Path, outcome: str, detail: str, run_id: str) -
     return target
 
 
-def find_failed(repo: Path, needle: str) -> Ticket:
-    """Locate one failed ticket by exact stem, or unique substring of stem/title."""
-    candidates = list_tickets(repo, "failed")
+def find_ticket(repo: Path, needle: str, states: tuple[str, ...] = STATES) -> Ticket:
+    """Locate one ticket across `states` by exact stem, or unique substring of stem/title."""
+    candidates = [t for state in states for t in list_tickets(repo, state)]
     for ticket in candidates:
         if ticket.path.stem == needle:
             return ticket
@@ -158,15 +162,38 @@ def find_failed(repo: Path, needle: str) -> Ticket:
         if needle in t.path.stem or needle in t.title
     ]
     if not matches:
-        raise TicketError(f"no failed ticket matches {needle!r}")
+        raise TicketError(f"no ticket matches {needle!r}")
     if len(matches) > 1:
         names = ", ".join(t.path.stem for t in matches)
         raise TicketError(f"ambiguous match for {needle!r}: {names}")
     return matches[0]
 
 
+def find_failed(repo: Path, needle: str) -> Ticket:
+    """Locate one failed ticket by exact stem, or unique substring of stem/title."""
+    return find_ticket(repo, needle, ("failed",))
+
+
+def remove(ticket: Ticket) -> None:
+    """Delete a ticket file outright (not a state transition, so no rename)."""
+    ticket.path.unlink()
+
+
+def set_priority(ticket: Ticket, priority: int) -> None:
+    """Rewrite the frontmatter priority in place, preserving all keys and the body."""
+    text = ticket.path.read_text()
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        raise TicketError(f"{ticket.path}: malformed frontmatter")
+    meta: dict[str, Any] = yaml.safe_load(parts[1]) or {}
+    meta["priority"] = priority
+    frontmatter = yaml.safe_dump(meta, sort_keys=False).strip()
+    ticket.path.write_text(f"---\n{frontmatter}\n---{parts[2]}")
+    ticket.priority = priority
+
+
 def requeue(repo: Path, ticket: Ticket) -> Path:
-    """Move a failed ticket back to queue/, stripping any appended '## Result' section."""
+    """Move a failed or done ticket back to queue/, stripping any appended '## Result' section."""
     text = ticket.path.read_text()
     clean_text, _, _ = text.partition("\n\n## Result\n")
     ticket.path.write_text(clean_text if clean_text.endswith("\n") else clean_text + "\n")
