@@ -71,6 +71,10 @@ class IsolationConfig(StrictModel):
     workdir: str = "/work"
 
 
+class QueueConfig(StrictModel):
+    file_failures: bool = False  # auto-file an investigation ticket when a run fails
+
+
 class BackendOpts(StrictModel):
     binary: str
     extra_args: list[str] = Field(default_factory=list)
@@ -120,6 +124,7 @@ class AdwConfig(StrictModel):
     ship: ShipConfig = Field(default_factory=ShipConfig)
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     isolation: IsolationConfig = Field(default_factory=IsolationConfig)
+    queue: QueueConfig = Field(default_factory=QueueConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
     experts: dict[str, str] = Field(default_factory=dict)

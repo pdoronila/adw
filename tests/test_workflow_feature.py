@@ -13,23 +13,27 @@ from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.config import AdwConfig
 from adw.nodes import git_ops
 from adw.nodes.agent_node import AgentRunner
+from adw.queue.tickets import list_tickets, parse_ticket
 from adw.state.run_state import RunState, create_run_dir, save_state
 from adw.workflows import steps
 from adw.workflows.base import WorkflowContext
 from adw.workflows.feature import FeatureWorkflow
 
 
-def make_config(max_fixes: int = 3, max_reviews: int = 2) -> AdwConfig:
-    return AdwConfig.model_validate(
-        {
-            "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
-            "workflow": {
-                "max_fix_iterations": max_fixes,
-                "max_review_iterations": max_reviews,
-                "gate_order": ["marker"],
-            },
-        }
-    )
+def make_config(
+    max_fixes: int = 3, max_reviews: int = 2, extra: dict | None = None
+) -> AdwConfig:
+    data = {
+        "gates": {"marker": {"command": "test -f marker.txt", "timeout": 10}},
+        "workflow": {
+            "max_fix_iterations": max_fixes,
+            "max_review_iterations": max_reviews,
+            "gate_order": ["marker"],
+        },
+    }
+    if extra:
+        data.update(extra)
+    return AdwConfig.model_validate(data)
 
 
 def make_ctx(
@@ -151,6 +155,78 @@ def test_gates_exhausted_fails(target_repo: Path) -> None:
     assert ctx.state.fix_attempts == 2
     # review never ran
     assert mocks["review"].invocations == []  # type: ignore[attr-defined]
+
+
+def _exhausting_mocks(target_repo: Path) -> dict[str, AgentAdapter]:
+    """Build edits app.py but never touches marker.txt, so gates never pass."""
+    build_mock = MockAdapter(
+        [
+            ScriptedTurn(output="built", session_id="s", on_invoke=edit_app(target_repo)),
+            ScriptedTurn(output="fix 1", session_id="s"),
+            ScriptedTurn(output="fix 2", session_id="s"),
+        ]
+    )
+    return {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": build_mock,
+        "review": MockAdapter(),
+    }
+
+
+def test_failure_files_ticket_when_enabled(target_repo: Path) -> None:
+    config = make_config(max_fixes=2, extra={"queue": {"file_failures": True}})
+    ctx = make_ctx(target_repo, config, _exhausting_mocks(target_repo))
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "failed"
+    tickets = list_tickets(target_repo, "queue")
+    assert len(tickets) == 1
+    ticket = parse_ticket(tickets[0].path)
+    assert ticket.workflow == "auto"
+    assert ticket.priority == 3
+    assert ticket.source_run == "test-run"
+    assert ticket.title.startswith("Investigate failed run test-run:")
+    assert "add a marker" in ticket.body  # the task
+    assert ctx.state.outcome_detail in ticket.body
+    assert "marker" in ticket.body  # content from the failing gate log
+    assert ctx.state.failure_ticket == str(tickets[0].path)
+
+
+def test_failure_no_ticket_by_default(target_repo: Path) -> None:
+    ctx = make_ctx(target_repo, make_config(max_fixes=2), _exhausting_mocks(target_repo))
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "failed"
+    assert list_tickets(target_repo, "queue") == []
+    assert ctx.state.failure_ticket is None
+
+
+def test_failure_loop_guard(target_repo: Path) -> None:
+    config = make_config(max_fixes=2, extra={"queue": {"file_failures": True}})
+    ctx = make_ctx(target_repo, config, _exhausting_mocks(target_repo))
+    ctx.state.source_ticket_run = "some-earlier-run"
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "failed"
+    assert list_tickets(target_repo, "queue") == []
+    assert ctx.state.failure_ticket is None
+
+
+def test_preflight_failure_ticket_has_no_log_section(target_repo: Path) -> None:
+    (target_repo / "app.py").write_text("dirty\n")
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter(),
+        "build": MockAdapter(),
+        "review": MockAdapter(),
+    }
+    config = make_config(extra={"queue": {"file_failures": True}})
+    ctx = make_ctx(target_repo, config, mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "failed"
+    tickets = list_tickets(target_repo, "queue")
+    assert len(tickets) == 1
+    assert "Failing gate log" not in parse_ticket(tickets[0].path).body
 
 
 def test_plan_rejection_cleans_up(target_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

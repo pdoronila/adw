@@ -29,6 +29,7 @@ class Ticket:
     body: str
     priority: int = DEFAULT_PRIORITY
     repo: Path | None = None
+    source_run: str | None = None  # run id that auto-filed this ticket; None for human-created
 
     @property
     def task(self) -> str:
@@ -67,6 +68,7 @@ def parse_ticket(path: Path) -> Ticket:
         body=parts[2].strip(),
         priority=int(meta.get("priority", DEFAULT_PRIORITY)),
         repo=Path(meta["repo"]).expanduser() if meta.get("repo") else None,
+        source_run=str(meta["source_run"]) if meta.get("source_run") else None,
     )
 
 
@@ -77,6 +79,7 @@ def write_ticket(
     workflow: str = "feature",
     priority: int = DEFAULT_PRIORITY,
     target_repo: Path | None = None,
+    source_run: str | None = None,
 ) -> Path:
     ensure_dirs(repo)
     from adw.state.run_state import slugify
@@ -84,8 +87,17 @@ def write_ticket(
     meta: dict[str, Any] = {"workflow": workflow, "title": title, "priority": priority}
     if target_repo is not None:
         meta["repo"] = str(target_repo)
+    if source_run is not None:
+        meta["source_run"] = source_run
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    path = tickets_root(repo) / "queue" / f"{stamp}-{slugify(title)}.md"
+    queue_dir = tickets_root(repo) / "queue"
+    stem = f"{stamp}-{slugify(title)}"
+    path = queue_dir / f"{stem}.md"
+    # Two failures in the same second slugify to the same stem; disambiguate.
+    seq = 2
+    while path.exists():
+        path = queue_dir / f"{stem}-{seq}.md"
+        seq += 1
     frontmatter = yaml.safe_dump(meta, sort_keys=False).strip()
     path.write_text(f"---\n{frontmatter}\n---\n\n{body.strip()}\n")
     return path

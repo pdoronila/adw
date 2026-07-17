@@ -82,12 +82,19 @@ def _execute(
     async_mode: bool = False,
     run_suffix: str = "",
     run_id: str | None = None,
+    source_ticket_run: str | None = None,
 ) -> rs.RunState:
     workflow = get_workflow(workflow_name)
     if run_id is None:
         run_id = rs.new_run_id(task) + run_suffix
     run_dir = rs.create_run_dir(repo, run_id)
-    state = rs.RunState(run_id=run_id, workflow=workflow_name, task=task, repo=str(repo))
+    state = rs.RunState(
+        run_id=run_id,
+        workflow=workflow_name,
+        task=task,
+        repo=str(repo),
+        source_ticket_run=source_ticket_run,
+    )
     state.pid = os.getpid()
     state.pgid = os.getpgid(0)
     rs.save_state(state, run_dir)
@@ -792,7 +799,15 @@ def _process_ticket(
         routed = routing.route(task, config, target_repo)
         workflow_name, task = routed.workflow, routed.task
         typer.secho(f"  routed → {workflow_name} ({routed.method}): {routed.rationale}", fg="cyan")
-    state = _execute(workflow_name, task, target_repo, config, auto_approve_plan, yes)
+    state = _execute(
+        workflow_name,
+        task,
+        target_repo,
+        config,
+        auto_approve_plan,
+        yes,
+        source_ticket_run=ticket.source_run,
+    )
     ticket_mod.finish(ticket, repo, state.status, state.outcome_detail, state.run_id)
     return state
 
