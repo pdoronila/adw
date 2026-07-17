@@ -25,9 +25,16 @@ def _seed_run(
     run_id: str,
     status: str = "shipped",
     pending_gate: str | None = None,
+    state_repo: Path | None = None,
+    base_branch: str = "",
+    work_branch: str = "",
 ) -> Path:
     run_dir = create_run_dir(repo, run_id)
-    state = RunState(run_id=run_id, workflow="feature", task="add widget", repo=str(repo))
+    state = RunState(
+        run_id=run_id, workflow="feature", task="add widget", repo=str(state_repo or repo)
+    )
+    state.base_branch = base_branch
+    state.work_branch = work_branch
     state.start_step("plan")
     state.end_step("plan", "ok", detail="wrote plan.md")
     state.gate_results.append(
@@ -48,6 +55,73 @@ def _seed_run(
     }
     (run_dir / "agent" / "01-plan.json").write_text(json.dumps(artifact))
     return run_dir
+
+
+SCRIPT_LINE = "# <script>alert(1)</script>"
+
+
+def _build_feat_branch(target_repo: Path, work_branch: str = "feat") -> None:
+    """Add a `feat` branch modifying app.py by +2/−1 lines (incl. an HTML line)."""
+    subprocess.run(
+        ["git", "checkout", "-b", work_branch], cwd=target_repo, check=True, capture_output=True
+    )
+    (target_repo / "app.py").write_text(f"def hello():\n    {SCRIPT_LINE}\n    return 'howdy'\n")
+    subprocess.run(
+        ["git", "commit", "-am", "change greeting"],
+        cwd=target_repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "checkout", "main"], cwd=target_repo, check=True, capture_output=True)
+
+
+def test_changed_files_unit(target_repo: Path) -> None:
+    _build_feat_branch(target_repo)
+    state = RunState(run_id="r1", workflow="feature", task="t", repo=str(target_repo))
+    state.base_branch = "main"
+    state.work_branch = "feat"
+
+    files = views.changed_files(state)
+    assert len(files) == 1
+    assert files[0]["path"] == "app.py"
+    assert files[0]["added"] == 2
+    assert files[0]["removed"] == 1
+    assert "diff --git" in files[0]["patch"]  # type: ignore[operator]
+
+    # No diff when the run hasn't branched yet, or the branch doesn't exist.
+    state.work_branch = ""
+    assert views.changed_files(state) == []
+    state.work_branch = "nope"
+    assert views.changed_files(state) == []
+
+
+def test_run_detail_shows_changes_card(target_repo: Path) -> None:
+    _build_feat_branch(target_repo)
+    _seed_run(
+        target_repo,
+        "r1",
+        state_repo=target_repo,
+        base_branch="main",
+        work_branch="feat",
+    )
+
+    resp = TestClient(create_app(target_repo)).get("/runs/r1")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Changes" in body
+    assert "app.py" in body
+    assert "+2" in body
+    assert "−1" in body
+    # raw diff text is HTML-escaped (no |safe): the literal tag never appears
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_run_detail_no_changes_card_without_branch(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    resp = TestClient(create_app(tmp_path)).get("/runs/r1")
+    assert resp.status_code == 200
+    assert "<h3>Changes" not in resp.text
 
 
 def test_dashboard_lists_runs_tickets_and_workflows(tmp_path: Path) -> None:
@@ -221,9 +295,7 @@ def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
 
 def test_timeline_events_stops_on_paused(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1", status="awaiting_plan_approval", pending_gate="plan")
-    gen = views.timeline_events(
-        tmp_path, "r1", render=lambda s: [("timeline", "x")], interval=0.01
-    )
+    gen = views.timeline_events(tmp_path, "r1", render=lambda s: [("timeline", "x")], interval=0.01)
     assert next(gen)  # emits current timeline once
     with pytest.raises(StopIteration):
         next(gen)  # then stops because status is paused
