@@ -25,6 +25,7 @@ def create_app(repo: Path) -> FastAPI:
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals["pill_class"] = views.pill_class
     templates.env.globals["humanize_ts"] = views.humanize_ts
+    templates.env.globals["clock_ts"] = views.clock_ts
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 
     def _board() -> dict[str, list[ticket_mod.Ticket]]:

@@ -97,6 +97,11 @@ def humanize_ts(dt: datetime) -> str:
     return dt.date().isoformat()
 
 
+def clock_ts(dt: datetime) -> str:
+    """Jinja helper: aware datetime -> 'HH:MM:SS' UTC clock time."""
+    return dt.astimezone(UTC).strftime("%H:%M:%S")
+
+
 def list_runs(repo: Path) -> list[rs.RunState]:
     """All runs, newest first (for the dashboard table)."""
     return list(reversed(rs.list_runs(repo)))
