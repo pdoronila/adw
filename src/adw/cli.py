@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import subprocess
+import threading
 from pathlib import Path
 
 import typer
@@ -847,6 +848,52 @@ def queue_process(
             break
 
 
+@queue_app.command("watch")
+def queue_watch(
+    repo: Path = REPO_OPT,
+    parallel: int = typer.Option(1, min=1, help="Run up to N tickets concurrently"),
+    interval: float = typer.Option(5.0, min=0.1, help="Seconds between queue polls"),
+    auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 (plan approval)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip BOTH engineer gates"),
+) -> None:
+    """Watch the queue and process tickets as they appear (Ctrl-C to stop)."""
+    if _load(repo).isolation.type == "local":
+        typer.secho(
+            "queue watch needs isolation.type: worktree (or container) so runs don't collide",
+            fg="red",
+        )
+        raise typer.Exit(2)
+    if parallel > 1 and not yes:
+        typer.secho("--parallel requires -y (gates can't be answered concurrently)", fg="red")
+        raise typer.Exit(2)
+
+    ticket_mod.ensure_dirs(repo)
+    stop = threading.Event()
+
+    def _shutdown(signum: int, frame: object) -> None:
+        typer.secho(
+            f"\n■ {signal.Signals(signum).name}: finishing in-flight runs, no new claims",
+            fg="yellow", bold=True,
+        )
+        stop.set()
+
+    previous = {sig: signal.signal(sig, _shutdown) for sig in (signal.SIGINT, signal.SIGTERM)}
+    queue_dir = ticket_mod.tickets_root(repo) / "queue"
+    typer.secho(
+        f"▶ watching {queue_dir} every {interval:g}s (parallel={parallel}) — Ctrl-C to stop",
+        bold=True,
+    )
+    try:
+        results = _watch_loop(repo, parallel, interval, auto_approve_plan, yes, stop)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+    typer.secho(f"\nprocessed {len(results)} tickets:", bold=True)
+    for title, status in results:
+        typer.secho(f"  {status:<9} {title}", fg=_STATUS_COLOR.get(status, "white"))
+
+
 @queue_app.command("retry")
 def queue_retry(
     ticket_ref: str = typer.Argument(None, metavar="TICKET"),
@@ -875,6 +922,40 @@ def queue_retry(
         raise typer.Exit(1) from exc
     path = ticket_mod.requeue(repo, ticket)
     typer.echo(f"requeued {ticket.title} -> {path}")
+
+
+def _watch_loop(
+    repo: Path,
+    workers: int,
+    interval: float,
+    auto_approve_plan: bool,
+    yes: bool,
+    stop: threading.Event,
+) -> list[tuple[str, str]]:
+    """Poll the queue until `stop` is set; returns (title, status) per processed ticket."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    results: list[tuple[str, str]] = []
+
+    def worker() -> None:
+        while not stop.is_set():
+            ticket = ticket_mod.claim_next(repo)  # atomic rename — safe across threads
+            if ticket is None:
+                stop.wait(interval)
+                continue
+            try:
+                state = _process_ticket(ticket, repo, auto_approve_plan, yes)
+                status = state.status
+            except Exception as exc:  # a bad ticket must not kill the watcher
+                ticket_mod.finish(ticket, repo, "failed", f"watch error: {exc}", "")
+                status = "failed"
+            typer.secho(f"  {status:<9} {ticket.title}", fg=_STATUS_COLOR.get(status, "white"))
+            results.append((ticket.title, status))
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(worker) for _ in range(workers)]:
+            future.result()
+    return results
 
 
 def _process_parallel(repo: Path, workers: int, auto_approve_plan: bool, yes: bool) -> None:
