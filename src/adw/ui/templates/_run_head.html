@@ -1,0 +1,29 @@
+  <div class="run-head">
+    <h2 class="mono">{{ state.run_id }}</h2>
+    <span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span>
+  </div>
+  <dl class="meta-grid">
+    <div><dt>workflow</dt><dd>{{ state.workflow }}</dd></div>
+    <div><dt>cost</dt><dd class="mono">${{ "%.2f"|format(state.total_cost_usd) }}</dd></div>
+    <div><dt>created</dt><dd title="{{ state.created_at }}">{{ humanize_ts(state.created_at) }}</dd></div>
+    <div><dt>updated</dt><dd title="{{ state.updated_at }}">{{ humanize_ts(state.updated_at) }}</dd></div>
+    {% if state.outcome_detail %}
+    <div class="meta-wide"><dt>outcome</dt><dd>{{ state.outcome_detail }}</dd></div>
+    {% endif %}
+  </dl>
+  <p class="task">{{ state.task }}</p>
+
+  <div class="run-actions">
+    {% if state.status in ("paused", "awaiting_plan_approval", "awaiting_final_review") %}
+    <form method="post" action="/runs/{{ state.run_id }}/approve">
+      <button type="submit">Approve</button>
+    </form>
+    <form method="post" action="/runs/{{ state.run_id }}/reject">
+      <button type="submit" class="danger">Reject</button>
+    </form>
+    {% elif state.status == "failed" %}
+    <form method="post" action="/runs/{{ state.run_id }}/retry">
+      <button type="submit">Retry</button>
+    </form>
+    {% endif %}
+  </div>

@@ -111,10 +111,14 @@ def create_app(repo: Path) -> FastAPI:
 
     @app.get("/runs/{run_id}/events")
     def run_events(run_id: str) -> StreamingResponse:
-        template = templates.get_template("_timeline.html")
+        timeline = templates.get_template("_timeline.html")
+        run_head = templates.get_template("_run_head.html")
 
-        def render(state: rs.RunState) -> str:
-            return template.render(state=state, pill_class=views.pill_class)
+        def render(state: rs.RunState) -> list[tuple[str, str]]:
+            return [
+                ("timeline", timeline.render(state=state, pill_class=views.pill_class)),
+                ("runhead", run_head.render(state=state)),
+            ]
 
         gen = views.timeline_events(repo, run_id, render)
         return StreamingResponse(gen, media_type="text/event-stream")
