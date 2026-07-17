@@ -105,6 +105,58 @@ def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
     assert "New task" in titles
 
 
+def test_post_ticket_delete(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Delete me", "body")
+    stem = ticket_mod.list_tickets(tmp_path, "queue")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/delete")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?toast=ticket-deleted"
+    assert ticket_mod.list_tickets(tmp_path, "queue") == []
+
+
+def test_post_ticket_requeue(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Requeue me", "body")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "failed", "boom", "run-1")
+    stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/requeue")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?toast=ticket-requeued"
+    assert ticket_mod.list_tickets(tmp_path, "failed") == []
+    assert any(t.title == "Requeue me" for t in ticket_mod.list_tickets(tmp_path, "queue"))
+
+
+def test_post_ticket_delete_unknown_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    assert client.post("/tickets/nope/delete").status_code == 404
+    assert client.post("/tickets/nope/requeue").status_code == 404
+
+
+def test_board_renders_action_forms(tmp_path: Path) -> None:
+    # Seed one failed ticket first, then leave one in the queue.
+    ticket_mod.write_ticket(tmp_path, "doomed one", "")
+    failed = ticket_mod.claim_next(tmp_path)
+    assert failed is not None
+    ticket_mod.finish(failed, tmp_path, "failed", "boom", "run-1")
+    ticket_mod.write_ticket(tmp_path, "queued one", "")
+
+    queued_stem = ticket_mod.list_tickets(tmp_path, "queue")[0].path.stem
+    failed_stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+
+    client = TestClient(create_app(tmp_path))
+    body = client.get("/fragments/board").text
+    assert f"/tickets/{queued_stem}/delete" in body
+    assert f"/tickets/{failed_stem}/delete" in body
+    assert f"/tickets/{failed_stem}/requeue" in body
+    assert body.count("/requeue") == 1
+    assert "hx-" not in body
+
+
 def _install_fake_popen(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     captured: list[list[str]] = []
 

@@ -625,6 +625,69 @@ def ticket_new(
         subprocess.run([os.environ.get("EDITOR", "vi"), str(path)])
 
 
+@ticket_app.command("edit")
+def ticket_edit(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Open a ticket in $EDITOR."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    subprocess.run([os.environ.get("EDITOR", "vi"), str(ticket.path)])
+
+
+@ticket_app.command("rm")
+def ticket_rm(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Delete a ticket."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    if not yes:
+        typer.confirm(f"delete {ticket.path.name}?", abort=True)
+    ticket_mod.remove(ticket)
+    typer.echo(f"deleted {ticket.path}")
+
+
+@ticket_app.command("bump")
+def ticket_bump(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    priority: int = typer.Option(..., help="Lower runs sooner"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Change a ticket's priority."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref)
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    ticket_mod.set_priority(ticket, priority)
+    typer.echo(f"set priority {priority} on {ticket.path.name}")
+
+
+@ticket_app.command("requeue")
+def ticket_requeue(
+    ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Move a failed or done ticket back to the queue."""
+    try:
+        ticket = ticket_mod.find_ticket(repo, ref, ("failed", "done"))
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    path = ticket_mod.requeue(repo, ticket)
+    typer.echo(f"requeued {ticket.title} -> {path}")
+
+
 @queue_app.command("list")
 def queue_list(
     repo: Path = REPO_OPT,

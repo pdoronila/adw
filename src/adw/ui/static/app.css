@@ -390,6 +390,15 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
   color: var(--text-muted);
   margin-top: 0.3rem;
 }
+.ticket-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.ticket-actions button {
+  font-size: var(--text-xs);
+  padding: 0.3rem 0.6rem;
+}
 
 /* ---------- empty states ---------- */
 
