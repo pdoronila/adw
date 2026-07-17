@@ -223,6 +223,18 @@ adw retry 20260716-...                       # re-runs from the failed step; com
 
 Like resume, retry skips every step already marked `ok`/`skipped` and only re-executes the failed step and everything after it.
 
+## Notifications
+
+Async and queued runs pause unattended at the engineer gates — a notification tells you a run needs you (or died) without watching the terminal. Add an optional `notify:` block to `adw.yaml`:
+
+```yaml
+notify:
+  macos: true                    # macOS notification via osascript (darwin only; no-op elsewhere)
+  webhook: "https://example/hook" # POST JSON {run_id, status, workflow, task, repo}, 3s timeout
+```
+
+A notification fires when a run enters `awaiting_plan_approval`, `awaiting_final_review`, or `failed`. Both channels are best-effort: a channel that fails (webhook down, `osascript` missing) is logged and skipped — a notification never fails a run. Absent the block, nothing is sent (the default).
+
 ## Web UI
 
 A local dashboard gives you the same runs, tickets, and gates without the terminal. Install the extra (developers can just `uv sync`):

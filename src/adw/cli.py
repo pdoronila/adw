@@ -573,6 +573,9 @@ def doctor(repo: Path = REPO_OPT) -> None:
             else:
                 typer.secho(f"  ✗ secret {secret} missing from env", fg="red")
                 failures += 1
+    typer.secho("notify:", bold=True)
+    typer.echo(f"  macos: {config.notify.macos}")
+    typer.echo(f"  webhook: {config.notify.webhook or 'none'}")
     raise typer.Exit(1 if failures else 0)
 
 
