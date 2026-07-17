@@ -25,5 +25,9 @@
     <form method="post" action="/runs/{{ state.run_id }}/retry">
       <button type="submit">Retry</button>
     </form>
+    {% elif state.status == "running" %}
+    <form method="post" action="/runs/{{ state.run_id }}/cancel">
+      <button type="submit" class="danger">Cancel</button>
+    </form>
     {% endif %}
   </div>

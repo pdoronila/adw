@@ -83,6 +83,7 @@ def test_run_detail_renders_artifacts(tmp_path: Path) -> None:
 def test_action_buttons_by_status(tmp_path: Path) -> None:
     _seed_run(tmp_path, "paused", status="awaiting_plan_approval", pending_gate="plan")
     _seed_run(tmp_path, "broke", status="failed")
+    _seed_run(tmp_path, "live", status="running")
 
     client = TestClient(create_app(tmp_path))
     paused_body = client.get("/runs/paused").text
@@ -91,6 +92,10 @@ def test_action_buttons_by_status(tmp_path: Path) -> None:
 
     failed_body = client.get("/runs/broke").text
     assert "Retry" in failed_body
+    assert "Cancel" not in failed_body
+
+    live_body = client.get("/runs/live").text
+    assert "Cancel" in live_body
 
 
 def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
@@ -146,6 +151,20 @@ def test_post_approve_and_retry_spawn(tmp_path: Path, monkeypatch: pytest.Monkey
     retry_argv = captured[-1]
     assert "retry" in retry_argv
     assert "r1" in retry_argv
+
+
+def test_post_cancel_spawns_and_redirects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _install_fake_popen(monkeypatch)
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post("/runs/r1/cancel")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/runs/r1?toast=cancel-requested"
+    cancel_argv = captured[-1]
+    assert "cancel" in cancel_argv
+    assert "r1" in cancel_argv
 
 
 def test_timeline_events_yields_and_stops(tmp_path: Path) -> None:
@@ -242,6 +261,7 @@ def test_toast_rendering(tmp_path: Path) -> None:
     assert "Ticket created" in body
     bogus = client.get("/", params={"toast": "bogus"}).text
     assert 'id="toast"' not in bogus
+    assert views.toast_message("cancel-requested") == "Cancel requested"
 
 
 def test_static_assets_served(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -46,6 +47,7 @@ _STATUS_COLOR = {
     "rejected": "yellow",
     "failed": "red",
     "paused": "cyan",
+    "cancelled": "yellow",
 }
 
 
@@ -85,6 +87,8 @@ def _execute(
         run_id = rs.new_run_id(task) + run_suffix
     run_dir = rs.create_run_dir(repo, run_id)
     state = rs.RunState(run_id=run_id, workflow=workflow_name, task=task, repo=str(repo))
+    state.pid = os.getpid()
+    state.pgid = os.getpgid(0)
     rs.save_state(state, run_dir)
     env = make_env(config)
     ctx = WorkflowContext(
@@ -459,6 +463,8 @@ def retry(
 
     state.status = "running"
     state.outcome_detail = ""
+    state.pid = os.getpid()
+    state.pgid = os.getpgid(0)
     for record in state.steps:
         if record.status == "failed":
             record.status = "pending"
@@ -482,6 +488,39 @@ def retry(
     _report(state, outcome, run_dir)
     _cleanup_isolation(state)
     raise typer.Exit(0 if state.status in ("shipped", "paused") else 1)
+
+
+@app.command()
+def cancel(
+    run_id: str = typer.Argument(help="Run id of a running run"),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Cancel a running run: SIGTERM its process group, keep branch/worktree for salvage."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+    if state.status != "running":
+        typer.secho(f"run {run_id} is not running (status={state.status})", fg="red")
+        raise typer.Exit(1)
+
+    if state.pgid is None:
+        typer.secho(
+            f"run {run_id} has no recorded pgid; marking cancelled without signal", fg="yellow"
+        )
+    else:
+        try:
+            os.killpg(state.pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            typer.secho("process group already gone", fg="yellow")
+
+    state.status = "cancelled"
+    state.outcome_detail = "cancelled by user"
+    rs.save_state(state, run_dir)
+    typer.secho(f"■ cancelled: {run_id}", fg="yellow", bold=True)
+    if state.worktree:
+        typer.echo(f"  worktree kept for salvage: {state.worktree}")
 
 
 @app.command()
