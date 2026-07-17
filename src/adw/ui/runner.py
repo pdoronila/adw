@@ -72,5 +72,9 @@ def retry_run(repo: Path, run_id: str) -> None:
     spawn(repo, run_id, ["retry", run_id, "--repo", str(repo)])
 
 
+def cancel_run(repo: Path, run_id: str) -> None:
+    spawn(repo, run_id, ["cancel", run_id, "--repo", str(repo)])
+
+
 def process_queue(repo: Path) -> None:
     spawn(repo, "queue-process", ["queue", "process", "--all", "-y", "--repo", str(repo)])

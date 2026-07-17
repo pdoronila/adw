@@ -151,6 +151,11 @@ def create_app(repo: Path) -> FastAPI:
         runner.retry_run(repo, run_id)
         return RedirectResponse(f"/runs/{run_id}?toast=retry-started", status_code=303)
 
+    @app.post("/runs/{run_id}/cancel")
+    def cancel_run(run_id: str) -> RedirectResponse:
+        runner.cancel_run(repo, run_id)
+        return RedirectResponse(f"/runs/{run_id}?toast=cancel-requested", status_code=303)
+
     @app.post("/tickets")
     def create_ticket(
         title: str = Form(...),

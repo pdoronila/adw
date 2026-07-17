@@ -29,9 +29,10 @@ PILL_STATUS: dict[str, str] = {
     "shipped": "shipped",
     "failed": "failed",
     "rejected": "rejected",
+    "cancelled": "cancelled",
 }
 
-TERMINAL = {"shipped", "failed", "rejected"}
+TERMINAL = {"shipped", "failed", "rejected", "cancelled"}
 PAUSED = {"paused", "awaiting_plan_approval", "awaiting_final_review"}
 
 # Toast keys carried through `?toast=<key>` redirect params. Only known keys
@@ -41,6 +42,7 @@ TOAST_MESSAGES: dict[str, str] = {
     "approved": "Run approved — resuming",
     "rejected": "Run rejected",
     "retry-started": "Retry started",
+    "cancel-requested": "Cancel requested",
     "ticket-created": "Ticket created",
     "ticket-deleted": "Ticket deleted",
     "ticket-requeued": "Ticket requeued",
