@@ -429,6 +429,7 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
 
 /* ---------- run detail ---------- */
 
+.sse-scope { display: contents; }
 .run-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
 .run-head h2 { margin: 0; font-size: var(--text-lg); word-break: break-all; }
 
