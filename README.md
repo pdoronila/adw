@@ -167,8 +167,11 @@ adw ticket new "Fix flaky retry test" --workflow feature --priority 2 --edit
 adw queue list
 adw queue process            # claim highest-priority ticket, run its workflow
 adw queue process --all -y   # drain the queue unattended
+adw queue watch --parallel 2 -y --interval 10   # standing worker: poll & process as tickets arrive
 adw queue retry <ticket>     # re-queue a failed ticket by name (or --all)
 ```
+
+`adw queue watch` runs in the foreground and polls `.adw/tickets/queue/` forever, claiming and running tickets the moment they land. It requires `isolation.type: worktree` (or `container`) so concurrent runs don't collide, and `--parallel N` requires `-y` (gates can't be answered concurrently). Ctrl-C or SIGTERM stops claiming new tickets but lets in-flight runs finish before exiting.
 
 Groom tickets in any state (matched by id or an unambiguous substring of the stem/title):
 
