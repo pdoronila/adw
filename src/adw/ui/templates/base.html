@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}adw{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
   <!-- vendored: htmx 2.0.10 + htmx-ext-sse 2.2.4 -->
-  <script src="/static/htmx.min.js"></script>
-  <script src="/static/sse.js"></script>
+  <script src="/static/htmx.min.js?v={{ asset_v }}"></script>
+  <script src="/static/sse.js?v={{ asset_v }}"></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -39,6 +39,6 @@
   {% if toast_message %}
   <div class="toast" id="toast" role="status">{{ toast_message }}</div>
   {% endif %}
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v={{ asset_v }}" defer></script>
 </body>
 </html>
