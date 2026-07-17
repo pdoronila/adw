@@ -60,6 +60,10 @@ class RunState(BaseModel):
     updated_at: datetime = Field(default_factory=_now)
     total_cost_usd: float = 0.0
     outcome_detail: str = ""
+    # run id from the auto-filed ticket that spawned this run (loop guard)
+    source_ticket_run: str | None = None
+    # path of the ticket auto-filed for this run's failure
+    failure_ticket: str | None = None
 
     def step(self, name: str) -> StepRecord:
         for record in self.steps:

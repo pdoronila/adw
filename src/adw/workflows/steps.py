@@ -11,13 +11,15 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import cast
 
 import typer
 
 from adw import human, prompts
 from adw.nodes import code_node, git_ops
 from adw.nodes.code_node import GateResult
-from adw.state.run_state import save_state
+from adw.queue.tickets import write_ticket
+from adw.state.run_state import RunState, save_state
 from adw.workflows.base import RunOutcome, WorkflowContext
 
 
@@ -26,8 +28,83 @@ def fail(
 ) -> RunOutcome:
     ctx.state.status = "failed"
     ctx.state.outcome_detail = f"{step}: {reason}"
+    _file_failure_ticket(ctx)
     save_state(ctx.state, ctx.run_dir)
     return RunOutcome("failed", reason, hints=hints or [])
+
+
+def _file_failure_ticket(ctx: WorkflowContext) -> None:
+    """Auto-file an investigation ticket for a failed run (opt-in via queue.file_failures).
+
+    A run spawned from such a ticket carries `source_ticket_run`, which short-circuits
+    here so an unfixable failure can never spawn an unbounded chain of tickets.
+    """
+    if not ctx.config.queue.file_failures or ctx.state.source_ticket_run is not None:
+        return
+    try:
+        state = ctx.state
+        title = f"Investigate failed run {state.run_id}: {state.outcome_detail[:80]}"
+        body_lines = [
+            f"- run_id: {state.run_id}",
+            f"- workflow: {state.workflow}",
+            f"- outcome_detail: {state.outcome_detail}",
+            "",
+            "## Task",
+            state.task,
+        ]
+        tail = _failing_gate_log_tail(state, ctx.run_dir)
+        if tail is not None:
+            filename, log_text = tail
+            body_lines += [
+                "",
+                f"## Failing gate log (last 40 lines of {filename})",
+                "```text",
+                log_text,
+                "```",
+            ]
+        # Tickets live in the MAIN repo; under worktree isolation ctx.repo_dir is a
+        # disposable per-run worktree, so file against Path(state.repo) (cf. finish).
+        path = write_ticket(
+            Path(state.repo),
+            title,
+            "\n".join(body_lines),
+            workflow="auto",
+            priority=3,
+            source_run=state.run_id,
+        )
+        state.failure_ticket = str(path)
+    except Exception as exc:  # noqa: BLE001 - ticket filing must never mask the failure
+        typer.secho(f"warning: could not file failure ticket: {exc}", fg="yellow")
+
+
+def _failing_gate_log_tail(
+    state: RunState, run_dir: Path, lines: int = 40
+) -> tuple[str, str] | None:
+    """Return (filename, tail) of the log for the failing gate, or None if unavailable."""
+    gates_dir = run_dir / "gates"
+    if not gates_dir.is_dir():
+        return None
+    log_path: Path | None = None
+    if state.gate_results:
+        last = state.gate_results[-1]
+        attempt = last.get("attempt")
+        results = cast("list[dict[str, object]]", last.get("results", []))
+        for result in results:
+            if not result.get("ok"):
+                candidate = gates_dir / f"attempt-{attempt}-{result.get('name')}.log"
+                if candidate.is_file():
+                    log_path = candidate
+                break
+    if log_path is None:  # non-gate failure, or the computed path is missing
+        logs = sorted(gates_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
+        if not logs:
+            return None
+        log_path = logs[-1]
+    try:
+        text = log_path.read_text()
+    except OSError:
+        return None
+    return log_path.name, "\n".join(text.splitlines()[-lines:])
 
 
 def preflight(ctx: WorkflowContext, *, require_clean: bool = True) -> RunOutcome | None:

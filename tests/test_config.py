@@ -44,6 +44,20 @@ def test_typo_rejected() -> None:
         AdwConfig.model_validate({"gatez": {}})
 
 
+def test_queue_file_failures_defaults_off() -> None:
+    assert AdwConfig.model_validate({}).queue.file_failures is False
+
+
+def test_queue_file_failures_enabled() -> None:
+    config = AdwConfig.model_validate({"queue": {"file_failures": True}})
+    assert config.queue.file_failures is True
+
+
+def test_queue_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"queue": {"bogus": True}})
+
+
 def test_merge_precedence(tmp_path: Path) -> None:
     global_path = tmp_path / "global.yaml"
     global_path.write_text(

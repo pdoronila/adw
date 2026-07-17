@@ -69,6 +69,23 @@ def test_ticket_with_target_repo(tmp_path: Path) -> None:
     assert ticket.repo == Path("/some/other/repo")
 
 
+def test_source_run_round_trip(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "investigate", "", source_run="run-123")
+    assert parse_ticket(path).source_run == "run-123"
+
+
+def test_source_run_defaults_none(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "plain", "")
+    assert parse_ticket(path).source_run is None
+
+
+def test_same_title_same_second_distinct_paths(tmp_path: Path) -> None:
+    first = write_ticket(tmp_path, "same title", "")
+    second = write_ticket(tmp_path, "same title", "")
+    assert first != second
+    assert first.exists() and second.exists()
+
+
 def test_requeue_cleans_and_moves_ticket(tmp_path: Path) -> None:
     write_ticket(tmp_path, "doomed", "do the thing")
     ticket = claim_next(tmp_path)
