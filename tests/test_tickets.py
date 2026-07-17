@@ -10,10 +10,13 @@ from adw.queue.tickets import (
     TicketError,
     claim_next,
     find_failed,
+    find_ticket,
     finish,
     list_tickets,
     parse_ticket,
+    remove,
     requeue,
+    set_priority,
     write_ticket,
 )
 
@@ -124,6 +127,87 @@ def test_find_failed_raises_when_ambiguous(tmp_path: Path) -> None:
         find_failed(tmp_path, "login")
 
 
+def test_find_ticket_by_stem_across_states(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "done", "run-6")
+
+    done = list_tickets(tmp_path, "done")[0]
+    found = find_ticket(tmp_path, done.path.stem)
+    assert found.path == done.path
+
+
+def test_find_ticket_scopes_to_states(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "queued only", "")
+    queued = list_tickets(tmp_path, "queue")[0]
+    with pytest.raises(TicketError):
+        find_ticket(tmp_path, queued.path.stem, ("failed",))
+
+
+def test_find_ticket_ambiguous_across_states(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "fix login bug", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "failed", "boom", "run-7")
+
+    write_ticket(tmp_path, "fix login page", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-8")
+
+    with pytest.raises(TicketError):
+        find_ticket(tmp_path, "login")
+
+
+def test_remove_deletes_file(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "delete me", "")
+    ticket = parse_ticket(path)
+    remove(ticket)
+    assert not path.exists()
+
+
+def test_set_priority_rewrites_frontmatter(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "bump me", "the body", workflow="bug", priority=5)
+    ticket = parse_ticket(path)
+    set_priority(ticket, 1)
+    assert ticket.priority == 1
+
+    reparsed = parse_ticket(path)
+    assert reparsed.priority == 1
+    assert reparsed.title == "bump me"
+    assert reparsed.workflow == "bug"
+    assert "the body" in reparsed.body
+
+
+def test_set_priority_preserves_repo_key_and_result_section(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "cross repo", "", target_repo=Path("/some/other/repo"))
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "failed", "boom", "run-9")
+
+    failed = list_tickets(tmp_path, "failed")[0]
+    set_priority(failed, 1)
+
+    reparsed = parse_ticket(failed.path)
+    assert reparsed.priority == 1
+    assert reparsed.repo == Path("/some/other/repo")
+    assert "## Result" in failed.path.read_text()
+
+
+def test_requeue_from_done(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "do the thing")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "commit abc", "run-10")
+
+    done = list_tickets(tmp_path, "done")[0]
+    target = requeue(tmp_path, done)
+    assert target.parent.name == "queue"
+    assert "## Result" not in target.read_text()
+    assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
+
+
 runner = CliRunner()
 
 
@@ -148,3 +232,62 @@ def test_cli_queue_retry_nonexistent_exits_nonzero(tmp_path: Path) -> None:
 def test_cli_queue_retry_requires_exactly_one_arg(tmp_path: Path) -> None:
     result = runner.invoke(app, ["queue", "retry", "--repo", str(tmp_path)])
     assert result.exit_code == 2
+
+
+def test_cli_ticket_rm_with_yes(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "delete me", "")
+    result = runner.invoke(app, ["ticket", "rm", path.stem, "-y", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert not path.exists()
+
+
+def test_cli_ticket_rm_prompts(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "keep me", "")
+    result = runner.invoke(
+        app, ["ticket", "rm", path.stem, "--repo", str(tmp_path)], input="n\n"
+    )
+    assert result.exit_code != 0
+    assert path.exists()
+
+
+def test_cli_ticket_bump(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "bump me", "", priority=5)
+    result = runner.invoke(
+        app, ["ticket", "bump", path.stem, "--priority", "1", "--repo", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert parse_ticket(path).priority == 1
+
+
+def test_cli_ticket_requeue_from_done(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-11")
+
+    done = list_tickets(tmp_path, "done")[0]
+    result = runner.invoke(app, ["ticket", "requeue", done.path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert list_tickets(tmp_path, "done") == []
+    assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
+
+
+def test_cli_ticket_edit_invokes_editor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = write_ticket(tmp_path, "edit me", "")
+    captured: list[list[str]] = []
+
+    def fake(argv: list[str]) -> None:
+        captured.append(argv)
+
+    monkeypatch.setattr("adw.cli.subprocess.run", fake)
+    monkeypatch.setenv("EDITOR", "myeditor")
+    result = runner.invoke(app, ["ticket", "edit", path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert captured == [["myeditor", str(path)]]
+
+
+def test_cli_ticket_rm_ambiguous_exits_nonzero(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "fix login bug", "")
+    write_ticket(tmp_path, "fix login page", "")
+    result = runner.invoke(app, ["ticket", "rm", "login", "-y", "--repo", str(tmp_path)])
+    assert result.exit_code != 0

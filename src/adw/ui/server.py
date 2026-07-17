@@ -160,6 +160,24 @@ def create_app(repo: Path) -> FastAPI:
         ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=int(priority))
         return RedirectResponse("/?toast=ticket-created", status_code=303)
 
+    @app.post("/tickets/{ticket_id}/delete")
+    def delete_ticket(ticket_id: str) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id)
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticket_mod.remove(ticket)
+        return RedirectResponse("/?toast=ticket-deleted", status_code=303)
+
+    @app.post("/tickets/{ticket_id}/requeue")
+    def requeue_ticket(ticket_id: str) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ("failed", "done"))
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticket_mod.requeue(repo, ticket)
+        return RedirectResponse("/?toast=ticket-requeued", status_code=303)
+
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:
         runner.process_queue(repo)
