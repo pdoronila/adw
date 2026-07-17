@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Tickets — adw{% endblock %}
+{% block content %}
+<section class="card" id="tickets">
+  <div class="card-head">
+    <h2>Tickets</h2>
+    <form method="post" action="/queue/process">
+      <button type="submit" class="ghost">Process queue</button>
+    </form>
+  </div>
+  <div id="board-wrap" hx-get="/fragments/board" hx-trigger="every 5s" hx-swap="innerHTML">
+    {% include "_board.html" %}
+  </div>
+</section>
+{% endblock %}

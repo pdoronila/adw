@@ -1,0 +1,21 @@
+<dialog class="modal" id="new-ticket-modal">
+  <div class="modal-head">
+    <h2>New ticket</h2>
+    <button type="button" class="ghost modal-close" data-modal-close aria-label="Close">✕</button>
+  </div>
+  <form class="stack" method="post" action="/tickets">
+    <label>title <input id="ticket-title" type="text" name="title" required></label>
+    <label>body <textarea name="body" rows="3"></textarea></label>
+    <div class="row">
+      <label>workflow
+        <select name="workflow">
+          {% for name, desc in workflows %}
+          <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>priority <input type="number" name="priority" value="5"></label>
+    </div>
+    <div class="row"><button type="submit">Create ticket</button></div>
+  </form>
+</dialog>

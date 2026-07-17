@@ -1,4 +1,4 @@
-/* adw dashboard — toast dismissal + keyboard shortcuts. No dependencies. */
+/* adw dashboard — toast dismissal, modals, keyboard shortcuts. No dependencies. */
 (function () {
   "use strict";
 
@@ -16,6 +16,35 @@
     }, 4000);
   }
 
+  // Modals: [data-modal-open] opens the named <dialog>, [data-modal-close]
+  // closes its dialog, clicking the backdrop closes too. Escape is native.
+  function openModal(id) {
+    if (document.querySelector("dialog[open]")) return false;
+    var dialog = document.getElementById(id);
+    if (!dialog) return false;
+    dialog.showModal();
+    var field = dialog.querySelector("textarea, input");
+    if (field) field.focus();
+    return true;
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    var opener = target.closest("[data-modal-open]");
+    if (opener) {
+      openModal(opener.getAttribute("data-modal-open"));
+      return;
+    }
+    if (target.closest("[data-modal-close]")) {
+      var dialog = target.closest("dialog");
+      if (dialog) dialog.close();
+      return;
+    }
+    // A click on the dialog element itself (not its contents) is the backdrop.
+    if (target instanceof HTMLDialogElement && target.open) target.close();
+  });
+
   // Keyboard shortcuts. Skipped while typing or with modifier keys held.
   function focusEl(id) {
     var el = document.getElementById(id);
@@ -27,8 +56,8 @@
 
   var shortcuts = {
     "/": function () { return focusEl("run-search"); },
-    r: function () { return focusEl("run-task"); },
-    n: function () { return focusEl("ticket-title"); },
+    r: function () { return openModal("start-run-modal"); },
+    n: function () { return openModal("new-ticket-modal"); },
   };
 
   var chordPending = false;
@@ -51,9 +80,11 @@
     if (chordPending) {
       chordPending = false;
       clearTimeout(chordTimer);
-      if (event.key === "d") {
+      // `g d` kept as a back-compat alias for the old dashboard chord.
+      var chords = { r: "/", d: "/", t: "/tickets" };
+      if (chords[event.key]) {
         event.preventDefault();
-        window.location.href = "/";
+        window.location.href = chords[event.key];
       }
       return;
     }

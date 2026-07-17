@@ -14,7 +14,11 @@
     <a class="brand" href="/">adw<span class="cursor">▌</span></a>
     <nav class="nav">
       <span class="nav-label">Navigate</span>
-      <a href="/" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+      <a href="/" class="nav-link{% if active_page == 'runs' %} active{% endif %}">Runs <span class="count">{{ run_count }}</span></a>
+      <a href="/tickets" class="nav-link{% if active_page == 'tickets' %} active{% endif %}">Tickets <span class="count">{{ queue_count }}</span></a>
+      <span class="nav-label">Actions</span>
+      <button type="button" class="nav-link nav-action" data-modal-open="start-run-modal">Start a run</button>
+      <button type="button" class="nav-link nav-action" data-modal-open="new-ticket-modal">New ticket</button>
       {% block sidebar_nav %}{% endblock %}
     </nav>
     {% block sidebar_extra %}{% endblock %}
@@ -23,12 +27,15 @@
       <span class="key-hint"><kbd>/</kbd> search</span>
       <span class="key-hint"><kbd>r</kbd> new run</span>
       <span class="key-hint"><kbd>n</kbd> new ticket</span>
-      <span class="key-hint"><kbd>g</kbd><kbd>d</kbd> dashboard</span>
+      <span class="key-hint"><kbd>g</kbd><kbd>r</kbd> runs</span>
+      <span class="key-hint"><kbd>g</kbd><kbd>t</kbd> tickets</span>
     </div>
   </aside>
   <main class="content">
     {% block content %}{% endblock %}
   </main>
+  {% include "_start_run_modal.html" %}
+  {% include "_new_ticket_modal.html" %}
   {% if toast_message %}
   <div class="toast" id="toast" role="status">{{ toast_message }}</div>
   {% endif %}

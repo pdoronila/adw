@@ -1,0 +1,27 @@
+<dialog class="modal" id="start-run-modal">
+  <div class="modal-head">
+    <h2>Start a run</h2>
+    <button type="button" class="ghost modal-close" data-modal-close aria-label="Close">✕</button>
+  </div>
+  <form class="stack" method="post" action="/runs">
+    <label>workflow
+      <select name="workflow">
+        {% for name, desc in workflows %}
+        <option value="{{ name }}">{{ name }} — {{ desc }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>task
+      <textarea id="run-task" name="task" rows="3" placeholder="What to do, in plain language" required></textarea>
+    </label>
+    <details class="advanced">
+      <summary>Advanced options</summary>
+      <div class="row">
+        <label>model <input type="text" name="model" placeholder="(default)"></label>
+        <label>backend <input type="text" name="backend" placeholder="(default)"></label>
+        <label>isolation <input type="text" name="isolation" placeholder="(default)"></label>
+      </div>
+    </details>
+    <div class="row"><button type="submit">Start run</button></div>
+  </form>
+</dialog>
