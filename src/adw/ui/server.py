@@ -31,6 +31,16 @@ def create_app(repo: Path) -> FastAPI:
     def _board() -> dict[str, list[ticket_mod.Ticket]]:
         return {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}
 
+    def _page_context(active_page: str, toast: str) -> dict[str, object]:
+        board = _board()
+        return {
+            "run_count": len(views.list_runs(repo)),
+            "queue_count": len(board["queue"]),
+            "workflows": views.workflow_options(),
+            "toast_message": views.toast_message(toast),
+            "active_page": active_page,
+        }
+
     def _gate_rounds(state: rs.RunState) -> list[dict[str, object]]:
         rounds: list[dict[str, object]] = []
         for round_ in state.gate_results:
@@ -47,25 +57,31 @@ def create_app(repo: Path) -> FastAPI:
         return rounds
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(
+    def runs_page(
         request: Request, q: str = "", status: str = "", toast: str = ""
     ) -> HTMLResponse:
         runs = views.list_runs(repo)
-        board = _board()
         return templates.TemplateResponse(
             request,
-            "dashboard.html",
+            "runs.html",
             {
+                **_page_context("runs", toast),
                 "runs": views.filter_runs(runs, q, status),
                 "run_count": len(runs),
-                "queue_count": len(board["queue"]),
                 "q": q,
                 "status": status,
-                "board": board,
+            },
+        )
+
+    @app.get("/tickets", response_class=HTMLResponse)
+    def tickets_page(request: Request, toast: str = "") -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "tickets.html",
+            {
+                **_page_context("tickets", toast),
+                "board": _board(),
                 "ticket_states": ticket_mod.STATES,
-                "workflows": views.workflow_options(),
-                "toast_message": views.toast_message(toast),
-                "active_page": "dashboard",
             },
         )
 
@@ -99,8 +115,8 @@ def create_app(repo: Path) -> FastAPI:
             request,
             "run_detail.html",
             {
+                **_page_context("run_detail", toast),
                 "state": state,
-                "toast_message": views.toast_message(toast),
                 "plan_html": views.render_markdown_file(run_dir, "plan.md"),
                 "review_html": views.render_markdown_file(run_dir, "review.md"),
                 "gate_rounds": _gate_rounds(state),
@@ -165,7 +181,7 @@ def create_app(repo: Path) -> FastAPI:
         priority: int = Form(ticket_mod.DEFAULT_PRIORITY),
     ) -> RedirectResponse:
         ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=int(priority))
-        return RedirectResponse("/?toast=ticket-created", status_code=303)
+        return RedirectResponse("/tickets?toast=ticket-created", status_code=303)
 
     @app.post("/tickets/{ticket_id}/delete")
     def delete_ticket(ticket_id: str) -> RedirectResponse:
@@ -174,7 +190,7 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.remove(ticket)
-        return RedirectResponse("/?toast=ticket-deleted", status_code=303)
+        return RedirectResponse("/tickets?toast=ticket-deleted", status_code=303)
 
     @app.post("/tickets/{ticket_id}/requeue")
     def requeue_ticket(ticket_id: str) -> RedirectResponse:
@@ -183,11 +199,11 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.requeue(repo, ticket)
-        return RedirectResponse("/?toast=ticket-requeued", status_code=303)
+        return RedirectResponse("/tickets?toast=ticket-requeued", status_code=303)
 
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:
         runner.process_queue(repo)
-        return RedirectResponse("/?toast=queue-processing", status_code=303)
+        return RedirectResponse("/tickets?toast=queue-processing", status_code=303)
 
     return app

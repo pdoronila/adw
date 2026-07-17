@@ -124,9 +124,8 @@ def test_run_detail_no_changes_card_without_branch(tmp_path: Path) -> None:
     assert "<h3>Changes" not in resp.text
 
 
-def test_dashboard_lists_runs_tickets_and_workflows(tmp_path: Path) -> None:
+def test_runs_page_lists_runs(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1")
-    ticket_mod.write_ticket(tmp_path, "Fix login", "details")
 
     client = TestClient(create_app(tmp_path))
     resp = client.get("/")
@@ -134,7 +133,33 @@ def test_dashboard_lists_runs_tickets_and_workflows(tmp_path: Path) -> None:
     body = resp.text
     assert "r1" in body
     assert "feature" in body
-    assert "Fix login" in body
+
+
+def test_tickets_page_lists_tickets(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Fix login", "details")
+
+    client = TestClient(create_app(tmp_path))
+    resp = client.get("/tickets")
+    assert resp.status_code == 200
+    assert "Fix login" in resp.text
+
+
+def test_modals_present_on_pages(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    client = TestClient(create_app(tmp_path))
+
+    for path in ("/", "/tickets", "/runs/r1"):
+        body = client.get(path).text
+        assert 'id="start-run-modal"' in body
+        assert 'id="new-ticket-modal"' in body
+        assert 'action="/runs"' in body
+        assert 'action="/tickets"' in body
+
+
+def test_tickets_page_nav_and_active(tmp_path: Path) -> None:
+    resp = TestClient(create_app(tmp_path)).get("/tickets")
+    assert resp.status_code == 200
+    assert 'hx-get="/fragments/board"' in resp.text
 
 
 def test_run_detail_renders_artifacts(tmp_path: Path) -> None:
@@ -179,7 +204,7 @@ def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
         data={"title": "New task", "body": "body text", "workflow": "bug", "priority": "3"},
     )
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/?toast=ticket-created"
+    assert resp.headers["location"] == "/tickets?toast=ticket-created"
     titles = [t.title for t in ticket_mod.list_tickets(tmp_path, "queue")]
     assert "New task" in titles
 
@@ -191,7 +216,7 @@ def test_post_ticket_delete(tmp_path: Path) -> None:
 
     resp = client.post(f"/tickets/{stem}/delete")
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/?toast=ticket-deleted"
+    assert resp.headers["location"] == "/tickets?toast=ticket-deleted"
     assert ticket_mod.list_tickets(tmp_path, "queue") == []
 
 
@@ -205,7 +230,7 @@ def test_post_ticket_requeue(tmp_path: Path) -> None:
 
     resp = client.post(f"/tickets/{stem}/requeue")
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/?toast=ticket-requeued"
+    assert resp.headers["location"] == "/tickets?toast=ticket-requeued"
     assert ticket_mod.list_tickets(tmp_path, "failed") == []
     assert any(t.title == "Requeue me" for t in ticket_mod.list_tickets(tmp_path, "queue"))
 
@@ -401,7 +426,7 @@ def test_fragments_board(tmp_path: Path) -> None:
     assert "no tickets" in body  # empty-column placeholder
 
 
-def test_dashboard_empty_state(tmp_path: Path) -> None:
+def test_runs_page_empty_state(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     assert "No runs yet" in client.get("/").text
 
