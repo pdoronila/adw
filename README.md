@@ -164,6 +164,7 @@ Work can also enter through a file-based queue (directory = state, renames are a
 
 ```bash
 adw ticket new "Fix flaky retry test" --workflow feature --priority 2 --edit
+adw ticket new "Refactor retry backoff" --blocked-by <ticket-stem>   # repeatable; waits on other tickets
 adw queue list
 adw queue process            # claim highest-priority ticket, run its workflow
 adw queue process --all -y   # drain the queue unattended
@@ -183,6 +184,8 @@ adw ticket requeue <ticket>         # move a failed OR done ticket back to the q
 ```
 
 Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move to `in_progress/`, then `done/` or `failed/` with a `## Result` section appended. Failed tickets can be re-queued with `adw queue retry <ticket-stem-or-substring>` (or `adw queue retry --all`), which strips the `## Result` section so the ticket parses cleanly again — the failure history stays in `.adw/runs/<run-id>/`. `adw ticket requeue` does the same but also accepts already-shipped tickets in `done/`, so you can re-run a completed ticket.
+
+Tickets can declare dependencies with `blocked_by: [<ticket-stem>, ...]` in their frontmatter (or `--blocked-by`, repeatable, on `adw ticket new`): a ticket is claimable only when every blocker's stem is in `done/`, so a failed blocker keeps its dependents blocked until `adw queue retry` re-queues it, and a dependency cycle raises a clear error at claim time. `adw queue list` marks waiting tickets with `[blocked by: ...]`, and `adw queue process` exits with a listing of blocked tickets instead of spinning when everything remaining is blocked.
 
 ## Factory router
 

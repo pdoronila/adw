@@ -67,11 +67,3 @@ Import labeled issues as tickets; post run results back to the issue.
 ```bash
 adw run feature "GitHub Issues integration using the gh CLI (no new deps, degrade gracefully when gh or a remote is missing, mirroring how ship.create_pr degrades): (1) 'adw ticket import --gh --label adw' creates queue tickets from open issues with that label (title, body, issue number stored in ticket frontmatter as github_issue), skipping already-imported issue numbers. (2) When a run that originated from an imported ticket ships, comment on the issue with the run id, branch name, and PR URL if one was created. Config block github: {label: adw, comment: true} in adw.yaml. Tests with gh calls monkeypatched: import mapping, dedupe, comment payload, graceful degradation." --async
 ```
-
-### 7. Ticket dependencies
-
-`blocked_by:` frontmatter so batch drains order correctly.
-
-```bash
-adw run feature "Add ticket dependencies: tickets support blocked_by: [<ticket-stem>, ...] in YAML frontmatter (src/adw/queue/tickets.py). 'adw queue process' (single and --all/--parallel) never claims a ticket whose blockers are not all in done/; among claimable tickets, priority order is unchanged. 'adw queue list' marks blocked tickets and names their blockers. If all remaining tickets are blocked, process exits with a clear message instead of spinning. 'adw ticket new' gains --blocked-by (repeatable). Tests: claim ordering with a dependency chain, parallel drain respects blockers, cycle detection errors clearly at claim time." --async
-```

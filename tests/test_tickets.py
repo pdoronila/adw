@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from adw.cli import app
@@ -308,3 +309,123 @@ def test_cli_ticket_rm_ambiguous_exits_nonzero(tmp_path: Path) -> None:
     write_ticket(tmp_path, "fix login page", "")
     result = runner.invoke(app, ["ticket", "rm", "login", "-y", "--repo", str(tmp_path)])
     assert result.exit_code != 0
+
+
+def _add_blocker(path: Path, stem: str) -> None:
+    """Rewrite a ticket's frontmatter in place to add a blocked_by entry."""
+    parts = path.read_text().split("---", 2)
+    meta = yaml.safe_load(parts[1]) or {}
+    meta.setdefault("blocked_by", []).append(stem)
+    frontmatter = yaml.safe_dump(meta, sort_keys=False).strip()
+    path.write_text(f"---\n{frontmatter}\n---{parts[2]}")
+
+
+def test_blocked_by_round_trip(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "child", "", blocked_by=["a", "b"])
+    assert parse_ticket(path).blocked_by == ["a", "b"]
+    plain = write_ticket(tmp_path, "plain", "")
+    assert parse_ticket(plain).blocked_by == []
+
+
+def test_claim_ordering_with_dependency_chain(tmp_path: Path) -> None:
+    a = write_ticket(tmp_path, "task a", "", priority=5)
+    b = write_ticket(tmp_path, "task b", "", priority=1, blocked_by=[a.stem])
+    write_ticket(tmp_path, "task c", "", priority=1, blocked_by=[b.stem])
+
+    first = claim_next(tmp_path)
+    assert first is not None and first.title == "task a"  # not higher-priority blocked b
+    finish(first, tmp_path, "shipped", "ok", "run-a")
+
+    second = claim_next(tmp_path)
+    assert second is not None and second.title == "task b"
+    assert claim_next(tmp_path) is None  # c blocked by in-progress (not done) b
+    finish(second, tmp_path, "shipped", "ok", "run-b")
+
+    third = claim_next(tmp_path)
+    assert third is not None and third.title == "task c"
+
+
+def test_blocked_by_failed_blocker_stays_blocked(tmp_path: Path) -> None:
+    a = write_ticket(tmp_path, "doomed", "")
+    write_ticket(tmp_path, "dependent", "", blocked_by=[a.stem])
+    ticket = claim_next(tmp_path)
+    assert ticket is not None and ticket.title == "doomed"
+    finish(ticket, tmp_path, "failed", "boom", "run-f")
+
+    assert claim_next(tmp_path) is None
+    assert [t.title for t in list_tickets(tmp_path, "queue")] == ["dependent"]
+
+
+def test_unknown_blocker_never_claims(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "stuck", "", blocked_by=["no-such-stem"])
+    assert claim_next(tmp_path) is None
+
+
+def test_cycle_detection_raises_at_claim(tmp_path: Path) -> None:
+    a = write_ticket(tmp_path, "cycle a", "")
+    b = write_ticket(tmp_path, "cycle b", "", blocked_by=[a.stem])
+    _add_blocker(a, b.stem)
+
+    with pytest.raises(TicketError) as exc_info:
+        claim_next(tmp_path)
+    message = str(exc_info.value)
+    assert "cycle" in message
+    assert a.stem in message and b.stem in message
+
+
+def test_cycle_ignored_while_claimable_ticket_exists(tmp_path: Path) -> None:
+    a = write_ticket(tmp_path, "cycle a", "")
+    b = write_ticket(tmp_path, "cycle b", "", blocked_by=[a.stem])
+    _add_blocker(a, b.stem)
+    write_ticket(tmp_path, "free c", "")
+
+    ticket = claim_next(tmp_path)
+    assert ticket is not None and ticket.title == "free c"
+    with pytest.raises(TicketError):
+        claim_next(tmp_path)
+
+
+def test_set_priority_preserves_blocked_by(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "child", "", blocked_by=["a", "b"])
+    set_priority(parse_ticket(path), 1)
+    reparsed = parse_ticket(path)
+    assert reparsed.priority == 1
+    assert reparsed.blocked_by == ["a", "b"]
+
+
+def test_cli_ticket_new_blocked_by(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["ticket", "new", "child", "--blocked-by", "x", "--blocked-by", "y",
+         "--repo", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "does not match any existing ticket" in result.output
+    tickets = list_tickets(tmp_path, "queue")
+    assert len(tickets) == 1
+    assert tickets[0].blocked_by == ["x", "y"]
+
+
+def test_cli_queue_list_marks_blocked(tmp_path: Path) -> None:
+    dep = write_ticket(tmp_path, "dep done", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-d")
+
+    write_ticket(tmp_path, "waiting", "", blocked_by=[dep.stem, "missing-stem"])
+    write_ticket(tmp_path, "free", "")
+
+    result = runner.invoke(app, ["queue", "list", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "[blocked by: missing-stem]" in result.output  # satisfied blocker not listed
+    assert result.output.count("blocked by:") == 1  # unblocked ticket has no marker
+
+
+def test_cli_queue_process_all_blocked_message(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "stuck", "", blocked_by=["no-such-stem"])
+    result = runner.invoke(app, ["queue", "process", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "blocked" in result.output
+    assert "no-such-stem" in result.output
+    assert "queue is empty" not in result.output
+    assert path.exists()  # still queued
