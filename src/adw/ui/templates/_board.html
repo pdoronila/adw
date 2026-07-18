@@ -8,6 +8,12 @@
       <div class="ticket-title">{{ ticket.title }}</div>
       {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
       <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
+      {% if state == "queue" and blockers.get(ticket.id) %}
+      <div class="ticket-blockers">
+        <span class="pill pill-blocked">blocked</span>
+        <span class="ticket-blockers-list">{{ blockers[ticket.id]|join(", ") }}</span>
+      </div>
+      {% endif %}
       <div class="ticket-actions">
         {% if state == "failed" %}
         <form method="post" action="/tickets/{{ ticket.id }}/requeue">
