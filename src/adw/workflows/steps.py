@@ -167,10 +167,12 @@ def preflight(ctx: WorkflowContext, *, require_clean: bool = True) -> RunOutcome
     else:
         # Keep adw's own .adw/ artifacts out of status/diff/add from here on.
         git_ops.ensure_adw_ignored(ctx.repo_dir)
-        # Only require a clean tree on a fresh run — a resume legitimately carries
-        # the build's uncommitted work.
+        # Only require a clean tree on a fresh run under local isolation — a resume
+        # legitimately carries the build's uncommitted work, and worktree/container
+        # runs get a fresh worktree so the main tree's state is irrelevant.
+        needs_clean_tree = require_clean and ctx.config.isolation.type == "local"
         resuming = ctx.state.step("branch").status == "ok"
-        if require_clean and not resuming and not git_ops.ensure_clean(ctx.repo_dir):
+        if needs_clean_tree and not resuming and not git_ops.ensure_clean(ctx.repo_dir):
             problems.append("working tree is not clean; commit or stash first")
     if not ctx.config.gates:
         problems.append("no gates configured in adw.yaml")

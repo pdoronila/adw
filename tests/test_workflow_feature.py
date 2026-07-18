@@ -284,6 +284,31 @@ def test_preflight_dirty_tree_fails_fast(target_repo: Path) -> None:
     assert mocks["plan"].invocations == []  # type: ignore[attr-defined]
 
 
+def test_dirty_main_tree_proceeds_under_worktree_isolation(target_repo: Path) -> None:
+    """Under worktree isolation the run never touches the main tree, so a dirty
+    main tree must not fail preflight."""
+    (target_repo / "app.py").write_text("dirty\n")  # uncommitted change in the main tree
+
+    def touch_marker_in_worktree(inv: AgentInvocation) -> None:
+        (inv.cwd / "marker.txt").write_text("fixed\n")
+
+    mocks: dict[str, AgentAdapter] = {
+        "plan": MockAdapter([ScriptedTurn(output="plan")]),
+        "build": MockAdapter(
+            [ScriptedTurn(output="built", session_id="s", on_invoke=touch_marker_in_worktree)]
+        ),
+        "review": MockAdapter([ScriptedTurn(output="VERDICT: ship")]),
+    }
+    config = make_config(extra={"isolation": {"type": "worktree"}})
+    ctx = make_ctx(target_repo, config, mocks)
+    outcome = FeatureWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"  # preflight did not abort
+    assert mocks["plan"].invocations  # type: ignore[attr-defined]  # work actually started
+    # the engineer's uncommitted change in the main tree survived untouched
+    assert (target_repo / "app.py").read_text() == "dirty\n"
+
+
 def test_plan_agent_failure_fails_run(target_repo: Path) -> None:
     mocks: dict[str, AgentAdapter] = {
         "plan": MockAdapter([ScriptedTurn(ok=False, output="")]),
