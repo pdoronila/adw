@@ -23,4 +23,5 @@ isolation:
 
 ship:
   branch_prefix: "adw/"
-  create_pr: true   # safe now: ship pushes the branch + opens a PR, or degrades gracefully
+  land: true        # auto squash-rebase the work branch into base + push; takes precedence over create_pr
+  create_pr: true   # fallback when land is off: ship pushes the branch + opens a PR, or degrades gracefully
