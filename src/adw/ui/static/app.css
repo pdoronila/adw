@@ -435,6 +435,7 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
   padding: 0.55rem 0.65rem;
   margin-bottom: 0.5rem;
   transition: border-color var(--transition), box-shadow var(--transition);
+  cursor: pointer;
 }
 .ticket:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .ticket[draggable="true"] { cursor: grab; }
@@ -617,6 +618,7 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 }
 .modal-head h2 { margin: 0; font-size: var(--text-lg); letter-spacing: -0.01em; }
 .modal-close { padding: 0.3rem 0.6rem; }
+.ticket-detail-body { white-space: pre-wrap; overflow-wrap: break-word; }
 
 /* ---------- toast ---------- */
 

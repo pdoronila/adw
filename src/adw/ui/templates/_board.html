@@ -4,7 +4,7 @@
   <div class="board-col"{% if state == "in_progress" %} data-drop-state="in_progress"{% endif %}>
     <h3>{{ labels.get(state, state) }} <span class="count">{{ board[state]|length }}</span></h3>
     {% for ticket in board[state] %}
-    <div class="ticket"{% if state == "queue" and not blockers.get(ticket.id) %} draggable="true" data-ticket-id="{{ ticket.id }}"{% endif %}>
+    <div class="ticket" data-ticket-detail="{{ ticket.id }}"{% if state == "queue" and not blockers.get(ticket.id) %} draggable="true" data-ticket-id="{{ ticket.id }}"{% endif %}>
       <div class="ticket-title">{{ ticket.title }}</div>
       {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
       <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>

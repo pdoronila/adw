@@ -161,6 +161,7 @@ def test_modals_present_on_pages(tmp_path: Path) -> None:
         body = client.get(path).text
         assert 'id="start-run-modal"' in body
         assert 'id="new-ticket-modal"' in body
+        assert 'id="ticket-detail-modal"' in body
         assert 'action="/runs"' in body
         assert 'action="/tickets"' in body
 
@@ -366,6 +367,77 @@ def test_board_blocked_badge_missing_ticket_falls_back_to_stem(tmp_path: Path) -
     body = TestClient(create_app(tmp_path)).get("/fragments/board").text
     assert "pill-blocked" in body
     assert "no-such-ticket" in body
+
+
+def test_ticket_detail_fragment_shows_full_details(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(
+        tmp_path,
+        "Fix the login flow",
+        "line one\n\nline two much longer than any card snippet",
+        workflow="feature",
+        priority=3,
+    ).stem
+
+    resp = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Fix the login flow" in body
+    assert "line one" in body
+    assert "line two much longer than any card snippet" in body
+    assert "p3" in body
+    assert "feature" in body
+    assert "queue" in body
+    assert "data-modal-close" in body
+
+
+def test_ticket_detail_fragment_shows_blockers(tmp_path: Path) -> None:
+    done_stem = ticket_mod.write_ticket(tmp_path, "Done dep", "").stem
+    done_dep = ticket_mod.claim_next(tmp_path)
+    assert done_dep is not None
+    ticket_mod.finish(done_dep, tmp_path, "shipped", "ok", "run-1")
+    dep_stem = ticket_mod.write_ticket(tmp_path, "Dep first", "").stem
+    stem = ticket_mod.write_ticket(tmp_path, "Dependent", "", blocked_by=[dep_stem, done_stem]).stem
+
+    body = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}").text
+    assert '<span class="pill pill-blocked">Dep first</span>' in body
+    assert '<span class="pill">Done dep</span>' in body
+
+
+def test_ticket_detail_fragment_non_queue_state(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Doomed", "")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "failed", "boom", "run-1")
+    stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+
+    resp = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}")
+    assert resp.status_code == 200
+    assert "failed" in resp.text
+
+
+def test_ticket_detail_fragment_unknown_404(tmp_path: Path) -> None:
+    assert TestClient(create_app(tmp_path)).get("/fragments/tickets/nope").status_code == 404
+
+
+def test_ticket_detail_escapes_html(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Sneaky", "<script>alert(1)</script>").stem
+
+    body = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}").text
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_board_cards_clickable(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Open me", "").stem
+    blocked_stem = ticket_mod.write_ticket(
+        tmp_path, "Blocked", "", blocked_by=["no-such-stem"]
+    ).stem
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert f'data-ticket-detail="{stem}"' in body
+    assert f'data-ticket-detail="{blocked_stem}"' in body
+    assert f'draggable="true" data-ticket-id="{stem}"' in body
+    assert f'data-ticket-id="{blocked_stem}"' not in body
 
 
 def test_post_tickets_with_blockers(tmp_path: Path) -> None:

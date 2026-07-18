@@ -1,0 +1,14 @@
+<div class="modal-head">
+  <h2>{{ ticket.title }}</h2>
+  <button type="button" class="ghost modal-close" data-modal-close aria-label="Close">✕</button>
+</div>
+<div class="stack ticket-detail">
+  <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }} · <span class="pill">{{ state }}</span></div>
+  {% if blockers %}
+  <div class="ticket-blockers">
+    {% for b in blockers %}<span class="pill{% if b.pending %} pill-blocked{% endif %}">{{ b.title }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if ticket.body %}<div class="ticket-detail-body">{{ ticket.body }}</div>
+  {% else %}<div class="empty empty-sm">no description</div>{% endif %}
+</div>

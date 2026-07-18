@@ -17,6 +17,7 @@ from typing import get_args
 import markdown  # type: ignore[import-untyped]
 
 from adw.nodes import git_ops
+from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
 from adw.workflows import WORKFLOWS
 
@@ -247,6 +248,27 @@ def workflow_options() -> list[tuple[str, str]]:
 def ticket_workflow_options() -> list[tuple[str, str]]:
     """Workflow options for the new-ticket select, including the "auto" sentinel."""
     return [AUTO_OPTION] + workflow_options()
+
+
+def ticket_detail_context(repo: Path, ticket: ticket_mod.Ticket) -> dict[str, object]:
+    """Context for the ticket-detail modal fragment: ticket, state, blocker pills.
+
+    The ticket's directory location IS its state. Blocker stems resolve to
+    titles when a matching ticket exists anywhere on the board (falling back to
+    the stem, same as the board's blocked badge).
+    """
+    pending = set(ticket_mod.pending_blockers(ticket, ticket_mod.done_stems(repo)))
+    titles = {
+        t.id: t.title for state in ticket_mod.STATES for t in ticket_mod.list_tickets(repo, state)
+    }
+    return {
+        "ticket": ticket,
+        "state": ticket.path.parent.name,
+        "blockers": [
+            {"stem": stem, "title": titles.get(stem, stem), "pending": stem in pending}
+            for stem in ticket.blocked_by
+        ],
+    }
 
 
 def _sse_frame(event: str, html: str) -> str:

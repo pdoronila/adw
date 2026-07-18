@@ -183,6 +183,16 @@ def create_app(repo: Path) -> FastAPI:
             _board_context(),
         )
 
+    @app.get("/fragments/tickets/{ticket_id}", response_class=HTMLResponse)
+    def fragment_ticket_detail(request: Request, ticket_id: str) -> HTMLResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id)
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request, "_ticket_detail.html", views.ticket_detail_context(repo, ticket)
+        )
+
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(request: Request, run_id: str, toast: str = "") -> HTMLResponse:
         state = views.get_state(repo, run_id)

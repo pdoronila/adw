@@ -43,6 +43,19 @@
     }
     // A click on the dialog element itself (not its contents) is the backdrop.
     if (target instanceof HTMLDialogElement && target.open) target.close();
+    // Ticket cards open the detail modal, fetched on demand. Clicks inside the
+    // action forms (Start/Requeue/Remove) submit as usual and never open it.
+    var card = target.closest("[data-ticket-detail]");
+    if (card && !target.closest("form") && !document.querySelector("dialog[open]")) {
+      fetch("/fragments/tickets/" + encodeURIComponent(card.getAttribute("data-ticket-detail")))
+        .then(function (resp) { return resp.ok ? resp.text() : null; })
+        .then(function (html) {
+          if (!html) return;
+          var dialog = document.getElementById("ticket-detail-modal");
+          dialog.innerHTML = html;
+          openModal("ticket-detail-modal");
+        });
+    }
   });
 
   // Keyboard shortcuts. Skipped while typing or with modifier keys held.
