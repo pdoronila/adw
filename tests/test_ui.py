@@ -292,6 +292,67 @@ def test_post_ticket_delete_unknown_404(tmp_path: Path) -> None:
     assert client.post("/tickets/nope/requeue").status_code == 404
 
 
+def test_post_ticket_archive(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Archive me", "body")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "shipped", "ok", "run-1")
+    stem = ticket_mod.list_tickets(tmp_path, "done")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/archive")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-archived"
+    assert ticket_mod.list_tickets(tmp_path, "done") == []
+    assert any(t.title == "Archive me" for t in ticket_mod.list_tickets(tmp_path, "archived"))
+
+
+def test_post_ticket_archive_unknown_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    assert client.post("/tickets/nope/archive").status_code == 404
+
+
+def test_post_ticket_requeue_from_archived(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Restore me", "body")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "shipped", "ok", "run-1")
+    ticket_mod.archive(tmp_path, ticket_mod.list_tickets(tmp_path, "done")[0])
+    stem = ticket_mod.list_tickets(tmp_path, "archived")[0].path.stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/requeue")
+    assert resp.status_code == 303
+    assert ticket_mod.list_tickets(tmp_path, "archived") == []
+    assert any(t.title == "Restore me" for t in ticket_mod.list_tickets(tmp_path, "queue"))
+
+
+def test_board_renders_archive_form_on_done(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Done one", "")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "shipped", "ok", "run-1")
+    stem = ticket_mod.list_tickets(tmp_path, "done")[0].path.stem
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert f'action="/tickets/{stem}/archive"' in body
+
+
+def test_tickets_page_shows_archived(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Old shipped thing", "")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "shipped", "ok", "run-1")
+    ticket_mod.archive(tmp_path, ticket_mod.list_tickets(tmp_path, "done")[0])
+
+    client = TestClient(create_app(tmp_path))
+    page = client.get("/tickets").text
+    assert "Old shipped thing" in page
+    # archived tickets never render as a board column
+    board = client.get("/fragments/board").text
+    assert "Old shipped thing" not in board
+
+
 def test_board_renders_action_forms(tmp_path: Path) -> None:
     # Seed one failed ticket first, then leave one in the queue.
     ticket_mod.write_ticket(tmp_path, "doomed one", "")

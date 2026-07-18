@@ -9,6 +9,7 @@ import signal
 import subprocess
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import typer
@@ -803,7 +804,7 @@ def ticket_rm(
 ) -> None:
     """Delete a ticket."""
     try:
-        ticket = ticket_mod.find_ticket(repo, ref)
+        ticket = ticket_mod.find_ticket(repo, ref, ticket_mod.FIND_STATES)
     except ticket_mod.TicketError as exc:
         typer.secho(str(exc), fg="red")
         raise typer.Exit(1) from exc
@@ -834,14 +835,60 @@ def ticket_requeue(
     ref: str = typer.Argument(help="Ticket id or unique substring of stem/title"),
     repo: Path = REPO_OPT,
 ) -> None:
-    """Move a failed or done ticket back to the queue."""
+    """Move a failed, done, or archived ticket back to the queue."""
     try:
-        ticket = ticket_mod.find_ticket(repo, ref, ("failed", "done"))
+        ticket = ticket_mod.find_ticket(repo, ref, ("failed", "done", ticket_mod.ARCHIVED))
     except ticket_mod.TicketError as exc:
         typer.secho(str(exc), fg="red")
         raise typer.Exit(1) from exc
     path = ticket_mod.requeue(repo, ticket)
     typer.echo(f"requeued {ticket.title} -> {path}")
+
+
+@ticket_app.command("archive")
+def ticket_archive(
+    ticket_ref: str = typer.Argument(None, metavar="TICKET"),
+    all_tickets: bool = typer.Option(False, "--all", help="Archive every done ticket"),
+    older_than_days: int = typer.Option(
+        0, "--older-than-days", help="With --all: only tickets created more than N days ago"
+    ),
+    repo: Path = REPO_OPT,
+) -> None:
+    """Move done tickets to archived/ — off the board, but still satisfying blockers."""
+    if bool(ticket_ref) == all_tickets:
+        typer.secho("pass exactly one of TICKET or --all", fg="red")
+        raise typer.Exit(2)
+
+    if all_tickets:
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        archived = 0
+        for ticket in ticket_mod.list_tickets(repo, "done"):
+            if older_than_days:
+                # The filename stamp is the creation time (mtime is unreliable —
+                # finish rewrites the file); skip tickets we can't date.
+                try:
+                    created = datetime.strptime(ticket.id[:15], "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+                if created > cutoff:
+                    continue
+            try:
+                path = ticket_mod.archive(repo, ticket)
+            except (ticket_mod.TicketError, OSError):
+                continue  # another worker moved it mid-iteration
+            typer.echo(f"archived {ticket.title} -> {path}")
+            archived += 1
+        if not archived:
+            typer.echo("no done tickets to archive")
+        return
+
+    try:
+        ticket = ticket_mod.find_ticket(repo, ticket_ref, ("done",))
+    except ticket_mod.TicketError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(1) from exc
+    path = ticket_mod.archive(repo, ticket)
+    typer.echo(f"archived {ticket.title} -> {path}")
 
 
 @queue_app.command("list")

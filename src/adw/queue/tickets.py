@@ -1,7 +1,7 @@
 """File-based ticket queue: directory location IS the state.
 
-<repo>/.adw/tickets/{queue,in_progress,done,failed}/ — transitions are atomic
-os.rename calls, which double as the lock.
+<repo>/.adw/tickets/{queue,in_progress,done,failed,archived}/ — transitions are
+atomic os.rename calls, which double as the lock.
 """
 
 from __future__ import annotations
@@ -14,6 +14,10 @@ from typing import Any
 import yaml
 
 STATES = ("queue", "in_progress", "done", "failed")
+# archived/ is a sibling of the board states, not part of STATES: it stays off
+# the board and out of `queue list`, but still counts as done for blocked_by.
+ARCHIVED = "archived"
+FIND_STATES = STATES + (ARCHIVED,)
 DEFAULT_PRIORITY = 5
 
 
@@ -47,7 +51,7 @@ def tickets_root(repo: Path) -> Path:
 
 def ensure_dirs(repo: Path) -> Path:
     root = tickets_root(repo)
-    for state in STATES:
+    for state in FIND_STATES:
         (root / state).mkdir(parents=True, exist_ok=True)
     return root
 
@@ -130,8 +134,13 @@ def list_tickets(repo: Path, state: str = "queue") -> list[Ticket]:
 
 
 def done_stems(repo: Path) -> set[str]:
-    """Stems of every ticket in done/ — the set that satisfies blocked_by entries."""
-    return {p.stem for p in (tickets_root(repo) / "done").glob("*.md")}
+    """Stems of every ticket in done/ or archived/ — the set that satisfies blocked_by entries.
+
+    Archived tickets stay "done" for dependency purposes, so archiving a blocker
+    never strands its dependents.
+    """
+    root = tickets_root(repo)
+    return {p.stem for state in ("done", ARCHIVED) for p in (root / state).glob("*.md")}
 
 
 def pending_blockers(ticket: Ticket, done: set[str]) -> list[str]:
@@ -295,8 +304,20 @@ def set_priority(ticket: Ticket, priority: int) -> None:
     ticket.priority = priority
 
 
+def archive(repo: Path, ticket: Ticket) -> Path:
+    """Move a done ticket into archived/, preserving its content (incl. '## Result')."""
+    ensure_dirs(repo)
+    target = tickets_root(repo) / ARCHIVED / ticket.path.name
+    try:
+        ticket.path.rename(target)
+    except OSError as exc:
+        raise TicketError(f"ticket {ticket.id!r} was moved by another worker") from exc
+    ticket.path = target
+    return target
+
+
 def requeue(repo: Path, ticket: Ticket) -> Path:
-    """Move a failed or done ticket back to queue/, stripping any appended '## Result' section."""
+    """Move a failed, done, or archived ticket back to queue/, stripping any '## Result' section."""
     text = ticket.path.read_text()
     clean_text, _, _ = text.partition("\n\n## Result\n")
     ticket.path.write_text(clean_text if clean_text.endswith("\n") else clean_text + "\n")

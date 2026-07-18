@@ -76,6 +76,8 @@ def create_app(repo: Path) -> FastAPI:
             "blocker_options": [
                 (t.id, t.title) for state in ("queue", "in_progress") for t in board[state]
             ],
+            # Separate key, not a board column: archived stays off the 4-column grid.
+            "archived": ticket_mod.list_tickets(repo, ticket_mod.ARCHIVED),
         }
 
     def _page_context(
@@ -186,7 +188,7 @@ def create_app(repo: Path) -> FastAPI:
     @app.get("/fragments/tickets/{ticket_id}", response_class=HTMLResponse)
     def fragment_ticket_detail(request: Request, ticket_id: str) -> HTMLResponse:
         try:
-            ticket = ticket_mod.find_ticket(repo, ticket_id)
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ticket_mod.FIND_STATES)
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return templates.TemplateResponse(
@@ -281,7 +283,7 @@ def create_app(repo: Path) -> FastAPI:
     @app.post("/tickets/{ticket_id}/delete")
     def delete_ticket(ticket_id: str) -> RedirectResponse:
         try:
-            ticket = ticket_mod.find_ticket(repo, ticket_id)
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ticket_mod.FIND_STATES)
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.remove(ticket)
@@ -290,11 +292,22 @@ def create_app(repo: Path) -> FastAPI:
     @app.post("/tickets/{ticket_id}/requeue")
     def requeue_ticket(ticket_id: str) -> RedirectResponse:
         try:
-            ticket = ticket_mod.find_ticket(repo, ticket_id, ("failed", "done"))
+            ticket = ticket_mod.find_ticket(
+                repo, ticket_id, ("failed", "done", ticket_mod.ARCHIVED)
+            )
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.requeue(repo, ticket)
         return RedirectResponse("/tickets?toast=ticket-requeued", status_code=303)
+
+    @app.post("/tickets/{ticket_id}/archive")
+    def archive_ticket(ticket_id: str) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ("done",))
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        ticket_mod.archive(repo, ticket)
+        return RedirectResponse("/tickets?toast=ticket-archived", status_code=303)
 
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:

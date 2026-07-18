@@ -9,13 +9,16 @@ from typer.testing import CliRunner
 from adw.cli import app
 from adw.queue.tickets import (
     TicketError,
+    archive,
     claim_next,
     claim_ticket,
+    done_stems,
     find_failed,
     find_ticket,
     finish,
     list_tickets,
     parse_ticket,
+    pending_blockers,
     remove,
     requeue,
     set_priority,
@@ -228,6 +231,54 @@ def test_requeue_from_done(tmp_path: Path) -> None:
     assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
 
 
+def test_archive_moves_done_to_archived(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "do the thing")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "commit abc", "run-12")
+
+    done = list_tickets(tmp_path, "done")[0]
+    before = done.path.read_text()
+    target = archive(tmp_path, done)
+
+    assert target == tickets_root(tmp_path) / "archived" / target.name
+    assert target.exists()
+    assert list_tickets(tmp_path, "done") == []
+    # archive preserves history, unlike requeue: content is byte-identical
+    assert target.read_text() == before
+    assert "## Result" in target.read_text()
+
+
+def test_done_stems_includes_archived(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "blocker", "")
+    blocker = claim_next(tmp_path)
+    assert blocker is not None
+    finish(blocker, tmp_path, "shipped", "ok", "run-13")
+    stem = blocker.path.stem
+    archive(tmp_path, list_tickets(tmp_path, "done")[0])
+
+    write_ticket(tmp_path, "dependent", "", blocked_by=[stem])
+    dependent = list_tickets(tmp_path, "queue")[0]
+    assert pending_blockers(dependent, done_stems(tmp_path)) == []
+
+    claimed = claim_next(tmp_path)
+    assert claimed is not None and claimed.title == "dependent"
+
+
+def test_requeue_from_archived(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-14")
+    archive(tmp_path, list_tickets(tmp_path, "done")[0])
+
+    archived = find_ticket(tmp_path, "shipped work", ("failed", "done", "archived"))
+    target = requeue(tmp_path, archived)
+    assert target.parent.name == "queue"
+    assert list_tickets(tmp_path, "archived") == []
+    assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
+
+
 def test_claim_ticket_moves_to_in_progress(tmp_path: Path) -> None:
     write_ticket(tmp_path, "fix login bug", "")
     ticket = claim_ticket(tmp_path, "login")
@@ -350,6 +401,58 @@ def test_cli_ticket_requeue_from_done(tmp_path: Path) -> None:
     result = runner.invoke(app, ["ticket", "requeue", done.path.stem, "--repo", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert list_tickets(tmp_path, "done") == []
+    assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
+
+
+def test_cli_ticket_archive(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-15")
+
+    done = list_tickets(tmp_path, "done")[0]
+    result = runner.invoke(app, ["ticket", "archive", done.path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert list_tickets(tmp_path, "done") == []
+    assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "archived"))
+
+
+def test_cli_ticket_archive_not_done_exits_nonzero(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "still queued", "")
+    result = runner.invoke(app, ["ticket", "archive", path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "no ticket matches" in result.output
+    assert path.exists()  # still queued
+
+
+def test_cli_ticket_archive_older_than(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "recent work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-16")
+
+    old = tickets_root(tmp_path) / "done" / "20200101-000000-ancient-work.md"
+    old.write_text("---\ntitle: ancient work\n---\n\nbody\n")
+
+    result = runner.invoke(
+        app, ["ticket", "archive", "--all", "--older-than-days", "30", "--repo", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert [t.title for t in list_tickets(tmp_path, "done")] == ["recent work"]
+    assert [t.title for t in list_tickets(tmp_path, "archived")] == ["ancient work"]
+
+
+def test_cli_ticket_requeue_from_archived(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-17")
+    archive(tmp_path, list_tickets(tmp_path, "done")[0])
+
+    stem = list_tickets(tmp_path, "archived")[0].path.stem
+    result = runner.invoke(app, ["ticket", "requeue", stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert list_tickets(tmp_path, "archived") == []
     assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
 
 

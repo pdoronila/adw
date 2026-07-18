@@ -473,6 +473,15 @@ button.ghost:hover { background: var(--surface-2); box-shadow: none; }
   padding: 0.3rem 0.6rem;
 }
 
+details.archived { margin-top: 0.75rem; }
+.archived-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+.archived-list .ticket { margin-bottom: 0; }
+
 /* ---------- empty states ---------- */
 
 .empty {
@@ -648,7 +657,7 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {
-  .board { grid-template-columns: repeat(2, 1fr); }
+  .board, .archived-list { grid-template-columns: repeat(2, 1fr); }
   .split-2 { grid-template-columns: 1fr; }
 }
 
@@ -672,7 +681,7 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 }
 
 @media (max-width: 560px) {
-  .board { grid-template-columns: 1fr; }
+  .board, .archived-list { grid-template-columns: 1fr; }
   .filters { flex-wrap: wrap; }
   .filters input[type="search"] { min-width: 0; flex: 1; }
   .runs td.snippet, .runs th:nth-child(3) { display: none; }

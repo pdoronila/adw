@@ -11,5 +11,27 @@
   <div id="board-wrap" hx-get="/fragments/board" hx-trigger="every 5s [!window.adwDragging]" hx-swap="innerHTML">
     {% include "_board.html" %}
   </div>
+  {% if archived %}
+  <details class="archived">
+    <summary>Archived <span class="count">{{ archived|length }}</span></summary>
+    <div class="archived-list">
+      {% for ticket in archived %}
+      <div class="ticket" data-ticket-detail="{{ ticket.id }}">
+        <div class="ticket-title">{{ ticket.title }}</div>
+        {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
+        <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
+        <div class="ticket-actions">
+          <form method="post" action="/tickets/{{ ticket.id }}/requeue">
+            <button type="submit" class="ghost">Requeue</button>
+          </form>
+          <form method="post" action="/tickets/{{ ticket.id }}/delete">
+            <button type="submit" class="danger">Remove</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </section>
 {% endblock %}

@@ -48,6 +48,7 @@ TOAST_MESSAGES: dict[str, str] = {
     "ticket-created": "Ticket created",
     "ticket-deleted": "Ticket deleted",
     "ticket-requeued": "Ticket requeued",
+    "ticket-archived": "Ticket archived",
     "ticket-started": "Ticket started — it will move to In progress shortly",
     "ticket-blocked": "Ticket is blocked by unfinished tickets",
     "queue-processing": "Queue processing started",
@@ -259,7 +260,9 @@ def ticket_detail_context(repo: Path, ticket: ticket_mod.Ticket) -> dict[str, ob
     """
     pending = set(ticket_mod.pending_blockers(ticket, ticket_mod.done_stems(repo)))
     titles = {
-        t.id: t.title for state in ticket_mod.STATES for t in ticket_mod.list_tickets(repo, state)
+        t.id: t.title
+        for state in ticket_mod.FIND_STATES
+        for t in ticket_mod.list_tickets(repo, state)
     }
     return {
         "ticket": ticket,
