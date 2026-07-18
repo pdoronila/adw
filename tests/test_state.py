@@ -5,6 +5,7 @@ from pathlib import Path
 
 from adw.state.run_state import (
     RunState,
+    cost_rollup,
     create_run_dir,
     list_runs,
     load_state,
@@ -71,6 +72,29 @@ def test_cancelled_status_and_pid_fields_roundtrip(tmp_path: Path) -> None:
     reloaded = load_state(run_dir)
     assert reloaded.pid is None
     assert reloaded.pgid is None
+
+
+def _run(workflow: str, cost: float) -> RunState:
+    state = RunState(run_id=f"{workflow}-{cost}", workflow=workflow, task="t", repo="")
+    state.add_cost(cost)
+    return state
+
+
+def test_cost_rollup() -> None:
+    rollup = cost_rollup([_run("feature", 0.25), _run("feature", 0.50), _run("bug", 1.00)])
+    assert rollup.runs == 3
+    assert rollup.total_cost_usd == 1.75
+    assert rollup.workflows["feature"].runs == 2
+    assert rollup.workflows["feature"].total_cost_usd == 0.75
+    assert rollup.workflows["bug"].runs == 1
+    assert rollup.workflows["bug"].total_cost_usd == 1.00
+
+
+def test_cost_rollup_empty() -> None:
+    rollup = cost_rollup([])
+    assert rollup.runs == 0
+    assert rollup.total_cost_usd == 0.0
+    assert rollup.workflows == {}
 
 
 def test_list_runs_skips_junk(tmp_path: Path) -> None:

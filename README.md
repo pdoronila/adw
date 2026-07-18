@@ -86,7 +86,12 @@ workflow:
 ship:
   branch_prefix: "adw/"
   create_pr: false
+
+limits:
+  max_cost_usd: 5.0   # optional: pause the run when total agent cost exceeds this
 ```
+
+When a run's total agent cost crosses `limits.max_cost_usd` it pauses with a `budget` gate — `adw resume <id> --approve` lifts the budget for the rest of that run, `--reject` stops it (the work branch is kept).
 
 Model strings are backend-native and passed through verbatim (`opus` for claude, `gpt-5-codex` for codex, `provider/model` for opencode). Global defaults live in `~/.config/adw/config.yaml`; the repo file wins.
 

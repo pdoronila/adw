@@ -55,7 +55,8 @@ class RunState(BaseModel):
     build_session_id: str | None = None
     fix_attempts: int = 0
     review_rounds: int = 0
-    pending_gate: str | None = None  # "plan" | "final" when awaiting an engineer decision
+    pending_gate: str | None = None  # "plan" | "final" | "budget" when awaiting a decision
+    budget_waived: bool = False  # engineer approved continuing past the budget
     gates_passed: bool = False
     steps: list[StepRecord] = Field(default_factory=list)
     gate_results: list[dict[str, object]] = Field(default_factory=list)
@@ -145,3 +146,26 @@ def list_runs(repo: Path) -> list[RunState]:
             except ValueError:
                 continue
     return states
+
+
+class WorkflowCost(BaseModel):
+    runs: int = 0
+    total_cost_usd: float = 0.0
+
+
+class CostRollup(BaseModel):
+    runs: int = 0
+    total_cost_usd: float = 0.0
+    workflows: dict[str, WorkflowCost] = Field(default_factory=dict)
+
+
+def cost_rollup(states: list[RunState]) -> CostRollup:
+    """Aggregate spend across runs: grand totals plus per-workflow breakdowns."""
+    rollup = CostRollup()
+    for state in states:
+        rollup.runs += 1
+        rollup.total_cost_usd += state.total_cost_usd
+        wc = rollup.workflows.setdefault(state.workflow, WorkflowCost())
+        wc.runs += 1
+        wc.total_cost_usd += state.total_cost_usd
+    return rollup

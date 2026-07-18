@@ -58,6 +58,14 @@ def test_queue_rejects_unknown_key() -> None:
         AdwConfig.model_validate({"queue": {"bogus": True}})
 
 
+def test_limits_parse_and_default() -> None:
+    config = AdwConfig.model_validate({"limits": {"max_cost_usd": 2.5}})
+    assert config.limits.max_cost_usd == 2.5
+    assert AdwConfig.model_validate({}).limits.max_cost_usd is None
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"limits": {"bogus": 1}})
+
+
 def test_notify_defaults_off() -> None:
     config = AdwConfig()
     assert config.notify.macos is False

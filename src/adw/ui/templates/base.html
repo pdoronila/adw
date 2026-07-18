@@ -23,6 +23,8 @@
     </nav>
     {% block sidebar_extra %}{% endblock %}
     <div class="sidebar-foot">
+      <span class="nav-label">Spend</span>
+      <span class="key-hint">total ${{ "%.2f"|format(total_spend) }}</span>
       <span class="nav-label">Keys</span>
       <span class="key-hint"><kbd>/</kbd> search</span>
       <span class="key-hint"><kbd>r</kbd> new run</span>

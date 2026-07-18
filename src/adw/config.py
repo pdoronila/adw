@@ -75,6 +75,10 @@ class QueueConfig(StrictModel):
     file_failures: bool = False  # auto-file an investigation ticket when a run fails
 
 
+class LimitsConfig(StrictModel):
+    max_cost_usd: float | None = None  # pause the run when total cost exceeds this
+
+
 class BackendOpts(StrictModel):
     binary: str
     extra_args: list[str] = Field(default_factory=list)
@@ -125,6 +129,7 @@ class AdwConfig(StrictModel):
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     isolation: IsolationConfig = Field(default_factory=IsolationConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
     experts: dict[str, str] = Field(default_factory=dict)

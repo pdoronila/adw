@@ -68,9 +68,11 @@ def create_app(repo: Path) -> FastAPI:
         }
 
     def _page_context(active_page: str, toast: str) -> dict[str, object]:
+        runs = views.list_runs(repo)
         return {
             **_board_context(),
-            "run_count": len(views.list_runs(repo)),
+            "run_count": len(runs),
+            "total_spend": sum(r.total_cost_usd for r in runs),
             "workflows": views.workflow_options(),
             "toast_message": views.toast_message(toast),
             "active_page": active_page,

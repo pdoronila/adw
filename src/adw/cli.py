@@ -321,11 +321,29 @@ def status(
     diff: bool = typer.Option(
         False, "--diff", help="Print git diff base_branch..work_branch for the run."
     ),
+    costs: bool = typer.Option(
+        False, "--costs", help="Print total and per-workflow cost rollups across all runs."
+    ),
 ) -> None:
     """Show recent runs, or full detail for one run."""
     if diff and not run_id:
         typer.secho("--diff requires a run id", fg="red", err=True)
         raise typer.Exit(1)
+    if costs and run_id:
+        typer.secho("--costs cannot be combined with a run id", fg="red", err=True)
+        raise typer.Exit(1)
+    if costs:
+        rollup = rs.cost_rollup(rs.list_runs(repo))
+        if json_output:
+            typer.echo(rollup.model_dump_json(indent=2))
+            return
+        if rollup.runs == 0:
+            typer.echo("no runs yet")
+            return
+        for name, wc in sorted(rollup.workflows.items()):
+            typer.echo(f"{name:<10} {wc.runs:>4} runs  ${wc.total_cost_usd:>8.2f}")
+        typer.echo(f"{'total':<10} {rollup.runs:>4} runs  ${rollup.total_cost_usd:>8.2f}")
+        return
     if run_id:
         run_dir = rs.runs_root(repo) / run_id
         if not (run_dir / "state.json").is_file():
@@ -453,6 +471,9 @@ def resume(
         raise typer.Exit(1)
     if sum([approve, reject, edit]) != 1:
         typer.secho("pass exactly one of --approve / --reject / --edit", fg="red")
+        raise typer.Exit(2)
+    if edit and state.pending_gate == "budget":
+        typer.secho("the budget gate has no artifact to edit; use --approve or --reject", fg="red")
         raise typer.Exit(2)
     if edit:
         artifact = run_dir / ("plan.md" if state.pending_gate == "plan" else "review.md")

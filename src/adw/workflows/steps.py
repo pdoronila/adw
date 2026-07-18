@@ -109,7 +109,58 @@ def _failing_gate_log_tail(
     return log_path.name, "\n".join(text.splitlines()[-lines:])
 
 
+def check_budget(ctx: WorkflowContext) -> RunOutcome | None:
+    """Pause with pending_gate='budget' when total cost exceeds limits.max_cost_usd."""
+    limit = ctx.config.limits.max_cost_usd
+    state = ctx.state
+    if limit is None or state.budget_waived or state.total_cost_usd <= limit:
+        return None
+    state.status = "paused"
+    state.pending_gate = "budget"
+    save_state(state, ctx.run_dir)
+    notify(state, ctx.config)
+    return RunOutcome(
+        "paused",
+        f"cost ${state.total_cost_usd:.2f} exceeds budget ${limit:.2f}",
+        hints=[f"adw resume {state.run_id} --approve   (lift budget for this run; or --reject)"],
+    )
+
+
+def _resolve_budget_gate(ctx: WorkflowContext) -> RunOutcome | None:
+    """Consume the engineer's decision on a pending budget gate (runs before any agent)."""
+    state = ctx.state
+    if state.pending_gate != "budget":
+        return None
+    decision, ctx.decision = ctx.decision, None
+    if decision == "approve":
+        state.budget_waived = True
+        state.pending_gate = None
+        state.status = "running"
+        save_state(state, ctx.run_dir)
+        return None
+    if decision == "reject":
+        state.status = "rejected"
+        state.pending_gate = None
+        state.outcome_detail = (
+            f"budget exceeded (${state.total_cost_usd:.2f}); rejected — "
+            f"branch {state.work_branch} kept"
+        )
+        save_state(state, ctx.run_dir)
+        return RunOutcome(
+            "rejected",
+            "budget exceeded; stopped by engineer",
+            hints=[f"work preserved on branch {state.work_branch}"],
+        )
+    return RunOutcome(
+        "paused",
+        "awaiting budget approval",
+        hints=[f"adw resume {state.run_id} --approve   (or --reject)"],
+    )
+
+
 def preflight(ctx: WorkflowContext, *, require_clean: bool = True) -> RunOutcome | None:
+    if (outcome := _resolve_budget_gate(ctx)) is not None:
+        return outcome
     problems: list[str] = []
     if not git_ops.is_git_repo(ctx.repo_dir):
         problems.append(f"{ctx.repo_dir} is not a git repository")
@@ -206,7 +257,7 @@ def agent_doc(
     (ctx.run_dir / out_name).write_text(result.output)
     state.end_step(step_name, "ok", _session_note(result.session_id))
     save_state(state, ctx.run_dir)
-    return None
+    return check_budget(ctx)
 
 
 def _decide(ctx: WorkflowContext, *, kind: str, artifact_name: str) -> str | None:
@@ -287,7 +338,7 @@ def build(
         return fail(ctx, step_name, f"{role} agent failed: {result.error}")
     state.end_step(step_name, "ok", _session_note(result.session_id))
     save_state(state, ctx.run_dir)
-    return None
+    return check_budget(ctx)
 
 
 def resume_turn(
@@ -313,7 +364,7 @@ def resume_turn(
         state.build_session_id = result.session_id
     state.end_step(step_name, "ok")
     save_state(state, ctx.run_dir)
-    return None
+    return check_budget(ctx)
 
 
 def gate_loop(
@@ -452,6 +503,8 @@ def review_loop(
         verdict, review_text = review(
             ctx, context=context, prompt_name=prompt_name, step_name=step_name
         )
+        if (outcome := check_budget(ctx)) is not None:
+            return outcome
         if verdict != "concerns" or round_no >= max_rounds:
             break
         revise = round_no + 1
