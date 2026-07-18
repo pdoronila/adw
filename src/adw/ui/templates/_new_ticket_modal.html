@@ -16,6 +16,15 @@
       </label>
       <label>priority <input type="number" name="priority" value="5"></label>
     </div>
+    {% if blocker_options %}
+    <label>blocked by
+      <select name="blocked_by" multiple size="4">
+        {% for stem, title in blocker_options %}
+        <option value="{{ stem }}">{{ title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
     <div class="row"><button type="submit">Create ticket</button></div>
   </form>
 </dialog>

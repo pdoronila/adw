@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -47,14 +47,30 @@ def create_app(repo: Path) -> FastAPI:
     templates.env.globals["asset_v"] = _asset_version(_HERE / "static")
     app.mount("/static", _NoCacheStaticFiles(directory=str(_HERE / "static")), name="static")
 
-    def _board() -> dict[str, list[ticket_mod.Ticket]]:
-        return {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}
+    def _board_context() -> dict[str, object]:
+        """Everything the board template needs, plus queue-derived page context."""
+        board = {state: ticket_mod.list_tickets(repo, state) for state in ticket_mod.STATES}
+        done = ticket_mod.done_stems(repo)
+        titles = {t.id: t.title for tickets in board.values() for t in tickets}
+        blockers: dict[str, list[str]] = {}
+        for ticket in board["queue"]:
+            pending = ticket_mod.pending_blockers(ticket, done)
+            if pending:
+                blockers[ticket.id] = [titles.get(stem, stem) for stem in pending]
+        return {
+            "board": board,
+            "ticket_states": ticket_mod.STATES,
+            "blockers": blockers,
+            "queue_count": len(board["queue"]),
+            "blocker_options": [
+                (t.id, t.title) for state in ("queue", "in_progress") for t in board[state]
+            ],
+        }
 
     def _page_context(active_page: str, toast: str) -> dict[str, object]:
-        board = _board()
         return {
+            **_board_context(),
             "run_count": len(views.list_runs(repo)),
-            "queue_count": len(board["queue"]),
             "workflows": views.workflow_options(),
             "toast_message": views.toast_message(toast),
             "active_page": active_page,
@@ -97,11 +113,7 @@ def create_app(repo: Path) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "tickets.html",
-            {
-                **_page_context("tickets", toast),
-                "board": _board(),
-                "ticket_states": ticket_mod.STATES,
-            },
+            _page_context("tickets", toast),
         )
 
     @app.get("/fragments/runs", response_class=HTMLResponse)
@@ -121,7 +133,7 @@ def create_app(repo: Path) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "_board.html",
-            {"board": _board(), "ticket_states": ticket_mod.STATES},
+            _board_context(),
         )
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -198,8 +210,12 @@ def create_app(repo: Path) -> FastAPI:
         body: str = Form(""),
         workflow: str = Form("feature"),
         priority: int = Form(ticket_mod.DEFAULT_PRIORITY),
+        blocked_by: Annotated[list[str] | None, Form()] = None,
     ) -> RedirectResponse:
-        ticket_mod.write_ticket(repo, title, body, workflow=workflow, priority=int(priority))
+        clean = [b.strip() for b in blocked_by or [] if b.strip()]
+        ticket_mod.write_ticket(
+            repo, title, body, workflow=workflow, priority=int(priority), blocked_by=clean or None
+        )
         return RedirectResponse("/tickets?toast=ticket-created", status_code=303)
 
     @app.post("/tickets/{ticket_id}/delete")

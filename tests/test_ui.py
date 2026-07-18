@@ -262,6 +262,67 @@ def test_board_renders_action_forms(tmp_path: Path) -> None:
     assert "hx-" not in body
 
 
+def test_board_shows_blocked_badge(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Blocker", "").stem
+    ticket_mod.write_ticket(tmp_path, "Dependent", "", blocked_by=[stem])
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert "pill-blocked" in body
+    # blocker stems resolve to titles for display
+    assert "Blocker" in body
+    assert "hx-" not in body
+
+
+def test_board_blocked_badge_clears_when_blocker_done(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Blocker", "").stem
+    ticket_mod.write_ticket(tmp_path, "Dependent", "", blocked_by=[stem])
+    blocker = ticket_mod.claim_next(tmp_path)
+    assert blocker is not None and blocker.path.stem == stem
+    ticket_mod.finish(blocker, tmp_path, "shipped", "done", "run-1")
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert "pill-blocked" not in body
+
+
+def test_board_blocked_badge_missing_ticket_falls_back_to_stem(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Dependent", "", blocked_by=["no-such-ticket"])
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert "pill-blocked" in body
+    assert "no-such-ticket" in body
+
+
+def test_post_tickets_with_blockers(tmp_path: Path) -> None:
+    stem1 = ticket_mod.write_ticket(tmp_path, "First blocker", "").stem
+    stem2 = ticket_mod.write_ticket(tmp_path, "Second blocker", "").stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(
+        "/tickets",
+        data={
+            "title": "Dep",
+            "body": "",
+            "workflow": "feature",
+            "priority": "5",
+            "blocked_by": [stem1, stem2],
+        },
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-created"
+    dep = next(t for t in ticket_mod.list_tickets(tmp_path, "queue") if t.title == "Dep")
+    assert dep.blocked_by == [stem1, stem2]
+
+
+def test_new_ticket_modal_lists_blocker_options(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    assert 'name="blocked_by"' not in client.get("/tickets").text  # empty queue: no picker
+
+    stem = ticket_mod.write_ticket(tmp_path, "Pickable", "").stem
+    body = client.get("/tickets").text
+    assert 'name="blocked_by"' in body
+    assert f'<option value="{stem}">Pickable</option>' in body
+
+
 def _install_fake_popen(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     captured: list[list[str]] = []
 
