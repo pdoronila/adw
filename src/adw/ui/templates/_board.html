@@ -1,10 +1,10 @@
 {% set labels = {"queue": "Queue", "in_progress": "In progress", "done": "Done", "failed": "Failed"} %}
 <div class="board">
   {% for state in ticket_states %}
-  <div class="board-col">
+  <div class="board-col"{% if state == "in_progress" %} data-drop-state="in_progress"{% endif %}>
     <h3>{{ labels.get(state, state) }} <span class="count">{{ board[state]|length }}</span></h3>
     {% for ticket in board[state] %}
-    <div class="ticket">
+    <div class="ticket"{% if state == "queue" and not blockers.get(ticket.id) %} draggable="true" data-ticket-id="{{ ticket.id }}"{% endif %}>
       <div class="ticket-title">{{ ticket.title }}</div>
       {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
       <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
@@ -15,6 +15,11 @@
       </div>
       {% endif %}
       <div class="ticket-actions">
+        {% if state == "queue" and not blockers.get(ticket.id) %}
+        <form method="post" action="/tickets/{{ ticket.id }}/start">
+          <button type="submit" class="ghost">Start</button>
+        </form>
+        {% endif %}
         {% if state == "failed" %}
         <form method="post" action="/tickets/{{ ticket.id }}/requeue">
           <button type="submit" class="ghost">Requeue</button>

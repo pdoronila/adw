@@ -10,6 +10,7 @@ from adw.cli import app
 from adw.queue.tickets import (
     TicketError,
     claim_next,
+    claim_ticket,
     find_failed,
     find_ticket,
     finish,
@@ -18,6 +19,7 @@ from adw.queue.tickets import (
     remove,
     requeue,
     set_priority,
+    tickets_root,
     write_ticket,
 )
 
@@ -226,6 +228,67 @@ def test_requeue_from_done(tmp_path: Path) -> None:
     assert any(t.title == "shipped work" for t in list_tickets(tmp_path, "queue"))
 
 
+def test_claim_ticket_moves_to_in_progress(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "fix login bug", "")
+    ticket = claim_ticket(tmp_path, "login")
+    assert ticket.path.parent.name == "in_progress"
+    assert ticket.path.exists()
+    assert list_tickets(tmp_path, "queue") == []
+
+
+def test_claim_ticket_blocked_raises(tmp_path: Path) -> None:
+    blocker = write_ticket(tmp_path, "blocker", "")
+    path = write_ticket(tmp_path, "dependent", "", blocked_by=[blocker.stem])
+    with pytest.raises(TicketError) as exc_info:
+        claim_ticket(tmp_path, "dependent")
+    assert blocker.stem in str(exc_info.value)
+    assert path.exists()  # still queued
+
+
+def test_claim_ticket_blocker_done_succeeds(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "blocker", "")
+    done = claim_next(tmp_path)
+    assert done is not None
+    finish(done, tmp_path, "shipped", "ok", "run-1")
+    write_ticket(tmp_path, "dependent", "", blocked_by=[done.path.stem])
+
+    ticket = claim_ticket(tmp_path, "dependent")
+    assert ticket.path.parent.name == "in_progress"
+
+
+def test_claim_ticket_wrong_state_message(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "shipped work", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    finish(ticket, tmp_path, "shipped", "ok", "run-2")
+
+    with pytest.raises(TicketError, match=r"is in done/, not queue/"):
+        claim_ticket(tmp_path, "shipped work")
+
+
+def test_claim_ticket_missing_raises(tmp_path: Path) -> None:
+    with pytest.raises(TicketError, match="no ticket matches"):
+        claim_ticket(tmp_path, "nonexistent")
+
+
+def test_claim_ticket_ambiguous_raises(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "fix login bug", "")
+    write_ticket(tmp_path, "fix login page", "")
+    with pytest.raises(TicketError, match="ambiguous"):
+        claim_ticket(tmp_path, "login")
+
+
+def test_claim_ticket_race_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = write_ticket(tmp_path, "raced", "")
+    stale = parse_ticket(path)
+    # Simulate a concurrent worker claiming the ticket after our lookup.
+    monkeypatch.setattr("adw.queue.tickets.find_ticket", lambda *args, **kwargs: stale)
+    path.rename(tickets_root(tmp_path) / "in_progress" / path.name)
+
+    with pytest.raises(TicketError, match="claimed by another worker"):
+        claim_ticket(tmp_path, "raced")
+
+
 runner = CliRunner()
 
 
@@ -428,4 +491,38 @@ def test_cli_queue_process_all_blocked_message(tmp_path: Path) -> None:
     assert "blocked" in result.output
     assert "no-such-stem" in result.output
     assert "queue is empty" not in result.output
+    assert path.exists()  # still queued
+
+
+def test_cli_queue_process_specific_ticket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_ticket(tmp_path, "skip me", "", priority=1)
+    path = write_ticket(tmp_path, "pick me", "", priority=9)
+    processed = []
+    monkeypatch.setattr(
+        "adw.cli._process_ticket",
+        lambda ticket, repo, auto_approve_plan, yes: processed.append(ticket),
+    )
+
+    result = runner.invoke(app, ["queue", "process", path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert [t.title for t in processed] == ["pick me"]  # not the higher-priority one
+    assert processed[0].path.parent.name == "in_progress"
+
+
+def test_cli_queue_process_ticket_excludes_all(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["queue", "process", "x", "--all", "--repo", str(tmp_path)])
+    assert result.exit_code == 2
+    result = runner.invoke(
+        app, ["queue", "process", "x", "--parallel", "2", "-y", "--repo", str(tmp_path)]
+    )
+    assert result.exit_code == 2
+
+
+def test_cli_queue_process_blocked_ticket_errors(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "stuck", "", blocked_by=["no-such-stem"])
+    result = runner.invoke(app, ["queue", "process", path.stem, "--repo", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "no-such-stem" in result.output
     assert path.exists()  # still queued

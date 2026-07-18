@@ -277,4 +277,17 @@ def create_app(repo: Path) -> FastAPI:
         runner.process_queue(repo)
         return RedirectResponse("/tickets?toast=queue-processing", status_code=303)
 
+    @app.post("/tickets/{ticket_id}/start")
+    def start_ticket(ticket_id: str) -> RedirectResponse:
+        # Pre-check for good UX only — the spawned CLI's claim_ticket is the
+        # authoritative, atomic check (a lost race just logs to ui.log).
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ("queue",))
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if ticket_mod.pending_blockers(ticket, ticket_mod.done_stems(repo)):
+            return RedirectResponse("/tickets?toast=ticket-blocked", status_code=303)
+        runner.start_ticket(repo, ticket.id)
+        return RedirectResponse("/tickets?toast=ticket-started", status_code=303)
+
     return app

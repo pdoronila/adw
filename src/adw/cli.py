@@ -888,13 +888,29 @@ def _process_ticket(
 
 @queue_app.command("process")
 def queue_process(
+    ticket_ref: str = typer.Argument(
+        None, metavar="TICKET", help="Start this specific ticket instead of the next by priority"
+    ),
     repo: Path = REPO_OPT,
     all_tickets: bool = typer.Option(False, "--all", help="Process until the queue is empty"),
     parallel: int = typer.Option(1, help="Run N tickets concurrently (needs worktree isolation)"),
     auto_approve_plan: bool = typer.Option(False, help="Skip engineer gate 1 (plan approval)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip BOTH engineer gates"),
 ) -> None:
-    """Claim the next ticket (or all) and run its workflow."""
+    """Claim the next ticket (or a specific TICKET, or all) and run its workflow."""
+    if ticket_ref and (all_tickets or parallel > 1):
+        typer.secho("TICKET cannot be combined with --all or --parallel", fg="red")
+        raise typer.Exit(2)
+
+    if ticket_ref:
+        try:
+            claimed = ticket_mod.claim_ticket(repo, ticket_ref)
+        except ticket_mod.TicketError as exc:
+            typer.secho(str(exc), fg="red")
+            raise typer.Exit(1) from exc
+        _process_ticket(claimed, repo, auto_approve_plan, yes)
+        return
+
     if parallel > 1:
         if not yes:
             typer.secho("--parallel requires -y (gates can't be answered concurrently)", fg="red")

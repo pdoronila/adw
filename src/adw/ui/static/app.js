@@ -96,4 +96,50 @@
     var handler = shortcuts[event.key];
     if (handler && handler()) event.preventDefault();
   });
+
+  // Board drag-and-drop: drag a queue card onto the In-progress column to
+  // start it. Document-level delegation so handlers survive htmx swaps; the
+  // board poll checks window.adwDragging so a swap can't clobber a drag.
+  window.adwDragging = false;
+
+  document.addEventListener("dragstart", function (event) {
+    var card = event.target instanceof HTMLElement && event.target.closest(".ticket[data-ticket-id]");
+    if (!card) return;
+    window.adwDragging = true;
+    event.dataTransfer.setData("text/plain", card.getAttribute("data-ticket-id"));
+    event.dataTransfer.effectAllowed = "move";
+  });
+
+  document.addEventListener("dragend", function () {
+    window.adwDragging = false;
+    document.querySelectorAll(".drop-target").forEach(function (el) { el.classList.remove("drop-target"); });
+  });
+
+  document.addEventListener("dragover", function (event) {
+    var col = event.target instanceof HTMLElement && event.target.closest("[data-drop-state='in_progress']");
+    if (!col || !window.adwDragging) return;
+    event.preventDefault(); // required to allow drop
+    event.dataTransfer.dropEffect = "move";
+    col.classList.add("drop-target");
+  });
+
+  document.addEventListener("dragleave", function (event) {
+    var col = event.target instanceof HTMLElement && event.target.closest("[data-drop-state='in_progress']");
+    if (col) col.classList.remove("drop-target");
+  });
+
+  document.addEventListener("drop", function (event) {
+    var col = event.target instanceof HTMLElement && event.target.closest("[data-drop-state='in_progress']");
+    if (!col) return;
+    event.preventDefault();
+    window.adwDragging = false;
+    var id = event.dataTransfer.getData("text/plain");
+    if (!id) return;
+    // Plain POST → 303 → toast, same as the button actions.
+    var form = document.createElement("form");
+    form.method = "post";
+    form.action = "/tickets/" + encodeURIComponent(id) + "/start";
+    document.body.appendChild(form);
+    form.submit();
+  });
 })();

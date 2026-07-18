@@ -8,7 +8,7 @@
       <button type="submit" class="ghost">Process queue</button>
     </form>
   </div>
-  <div id="board-wrap" hx-get="/fragments/board" hx-trigger="every 5s" hx-swap="innerHTML">
+  <div id="board-wrap" hx-get="/fragments/board" hx-trigger="every 5s [!window.adwDragging]" hx-swap="innerHTML">
     {% include "_board.html" %}
   </div>
 </section>

@@ -78,3 +78,7 @@ def cancel_run(repo: Path, run_id: str) -> None:
 
 def process_queue(repo: Path) -> None:
     spawn(repo, "queue-process", ["queue", "process", "--all", "-y", "--repo", str(repo)])
+
+
+def start_ticket(repo: Path, ticket_id: str) -> None:
+    spawn(repo, "queue-process", ["queue", "process", ticket_id, "-y", "--repo", str(repo)])

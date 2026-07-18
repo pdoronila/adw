@@ -270,6 +270,55 @@ def test_board_renders_action_forms(tmp_path: Path) -> None:
     assert "hx-" not in body
 
 
+def test_post_ticket_start_spawns_and_redirects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _install_fake_popen(monkeypatch)
+    stem = ticket_mod.write_ticket(tmp_path, "Start me", "").stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/start")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-started"
+    assert captured[-1][-6:] == ["queue", "process", stem, "-y", "--repo", str(tmp_path)]
+
+
+def test_post_ticket_start_unknown_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    assert client.post("/tickets/nope/start").status_code == 404
+
+
+def test_post_ticket_start_blocked_redirects_no_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _install_fake_popen(monkeypatch)
+    stem = ticket_mod.write_ticket(tmp_path, "Blocked", "", blocked_by=["no-such-stem"]).stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(f"/tickets/{stem}/start")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-blocked"
+    assert captured == []
+
+
+def test_board_queue_cards_draggable(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Drag me", "").stem
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert f'draggable="true" data-ticket-id="{stem}"' in body
+    assert f"/tickets/{stem}/start" in body
+    assert 'data-drop-state="in_progress"' in body
+    assert "hx-" not in body
+
+
+def test_board_blocked_card_not_draggable(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Blocked", "", blocked_by=["no-such-stem"]).stem
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/board").text
+    assert "draggable" not in body
+    assert f"/tickets/{stem}/start" not in body
+
+
 def test_board_shows_blocked_badge(tmp_path: Path) -> None:
     stem = ticket_mod.write_ticket(tmp_path, "Blocker", "").stem
     ticket_mod.write_ticket(tmp_path, "Dependent", "", blocked_by=[stem])

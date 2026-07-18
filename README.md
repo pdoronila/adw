@@ -173,6 +173,7 @@ adw ticket new "Fix flaky retry test" --workflow feature --priority 2 --edit
 adw ticket new "Refactor retry backoff" --blocked-by <ticket-stem>   # repeatable; waits on other tickets
 adw queue list
 adw queue process            # claim highest-priority ticket, run its workflow
+adw queue process <ticket>   # start a specific ticket by id or unique substring; refuses if it's blocked
 adw queue process --all -y   # drain the queue unattended
 adw queue watch --parallel 2 -y --interval 10   # standing worker: poll & process as tickets arrive
 adw queue retry <ticket>     # re-queue a failed ticket by name (or --all)
@@ -256,7 +257,7 @@ pip install 'adw[ui]'
 adw ui                    # serves http://localhost:8770 and opens your browser
 ```
 
-It has three pages — a Dashboard at `/` (health/status/cost/backlog tiles, a needs-attention list, and recent runs, auto-refreshing), Runs at `/runs` (searchable, filterable by status, auto-refreshing), and Tickets at `/tickets` (the board plus a drain-the-queue button) — and a live step timeline per run (streamed over SSE), with buttons to approve/reject paused runs and retry failed ones. Start-a-run and New-ticket are modals reachable from the sidebar on any page. Each ticket card has a Remove button, and failed cards also have a Requeue button. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` start-run modal, `n` new-ticket modal, `g` `d` dashboard, `g` `r` runs, `g` `t` tickets. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
+It has three pages — a Dashboard at `/` (health/status/cost/backlog tiles, a needs-attention list, and recent runs, auto-refreshing), Runs at `/runs` (searchable, filterable by status, auto-refreshing), and Tickets at `/tickets` (the board plus a drain-the-queue button) — and a live step timeline per run (streamed over SSE), with buttons to approve/reject paused runs and retry failed ones. Start-a-run and New-ticket are modals reachable from the sidebar on any page. Each ticket card has a Remove button, and failed cards also have a Requeue button. Unblocked queue cards have a Start button — or drag one onto the In progress column — to start that specific ticket immediately. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` start-run modal, `n` new-ticket modal, `g` `d` dashboard, `g` `r` runs, `g` `t` tickets. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth.
 
 ## Isolation, parallelism & racing
 

@@ -204,6 +204,40 @@ def claim_next(repo: Path) -> Ticket | None:
     return None
 
 
+def claim_ticket(repo: Path, needle: str) -> Ticket:
+    """Atomically move one named queued ticket into in_progress and return it.
+
+    Refuses tickets with unfinished blockers (dependencies are semantic — edit
+    the ticket to drop them). The rename remains the sole lock, so this is
+    race-safe against concurrent claim_next callers.
+    """
+    ensure_dirs(repo)
+    try:
+        ticket = find_ticket(repo, needle, ("queue",))
+    except TicketError as exc:
+        if "no ticket matches" not in str(exc):
+            raise
+        try:
+            elsewhere = find_ticket(repo, needle)
+        except TicketError:
+            raise exc from None
+        raise TicketError(
+            f"ticket {elsewhere.id!r} is in {elsewhere.path.parent.name}/, not queue/"
+        ) from exc
+    pending = pending_blockers(ticket, done_stems(repo))
+    if pending:
+        raise TicketError(
+            f"ticket {ticket.id!r} is blocked by unfinished ticket(s): {', '.join(pending)}"
+        )
+    target = tickets_root(repo) / "in_progress" / ticket.path.name
+    try:
+        ticket.path.rename(target)
+    except OSError as exc:
+        raise TicketError(f"ticket {ticket.id!r} was claimed by another worker") from exc
+    ticket.path = target
+    return ticket
+
+
 def finish(ticket: Ticket, repo: Path, outcome: str, detail: str, run_id: str) -> Path:
     """Move an in_progress ticket to done/ or failed/ and append the result."""
     state = "done" if outcome == "shipped" else "failed"

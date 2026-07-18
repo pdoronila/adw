@@ -47,6 +47,8 @@ TOAST_MESSAGES: dict[str, str] = {
     "ticket-created": "Ticket created",
     "ticket-deleted": "Ticket deleted",
     "ticket-requeued": "Ticket requeued",
+    "ticket-started": "Ticket started — it will move to In progress shortly",
+    "ticket-blocked": "Ticket is blocked by unfinished tickets",
     "queue-processing": "Queue processing started",
 }
 
