@@ -348,7 +348,7 @@
           <text class="ord" x="122" y="768" text-anchor="end">11</text>
           <rect x="140" y="736" width="260" height="54" rx="9" fill="var(--code-tint)" stroke="var(--code)" stroke-width="1.5"/>
           <text class="node-title" x="158" y="759">Ship</text>
-          <text class="node-sub" x="158" y="776">commit · optional gh pr create</text>
+          <text class="node-sub" x="158" y="776">commit · land into base, or open a PR</text>
           <text class="node-kind" x="382" y="757" text-anchor="end" fill="var(--code)">code</text>
         </g>
         <!-- 12 Shipped -->
@@ -356,7 +356,7 @@
           <text class="ord" x="122" y="840" text-anchor="end">✓</text>
           <rect x="140" y="808" width="260" height="54" rx="16" fill="var(--output-tint)" stroke="var(--pass)" stroke-width="1.5"/>
           <text class="node-title" x="158" y="831">Shipped</text>
-          <text class="node-sub" x="158" y="848">work on branch adw/&lt;run-id&gt;</text>
+          <text class="node-sub" x="158" y="848">landed on base · or PR / branch</text>
           <text class="node-kind" x="382" y="829" text-anchor="end" fill="var(--pass)">output</text>
         </g>
       </svg>
@@ -411,7 +411,7 @@
         <div class="lane-tag" style="--lc:var(--code)">code</div>
         <div class="acard code">
           <h3>Code node — <span class="path">run_gates() · git_ops</span></h3>
-          <p>Runs each gate as a shell command (host or container) and captures pass/fail; branches, stages, commits, opens PRs via git on the host.</p>
+          <p>Runs each gate as a shell command (host or container) and captures pass/fail; branches, stages, commits, and lands (rebase + ff-merge) or opens PRs via git on the host.</p>
           <span class="handoff">↺ on failure, hands the excerpt back to the build agent's session</span>
         </div>
       </div>
@@ -530,8 +530,8 @@ adw resume &lt;id&gt; --approve</code>
       <div class="cap pass">
         <p class="k">isolation &amp; scale</p>
         <h3>Worktrees · racing · containers</h3>
-        <p>Each run in its own git worktree; drain a queue N-at-a-time; race N candidates, first-green-wins; or run agents inside an Apple container.</p>
-        <code class="cmd">adw queue process --parallel 3
+        <p>Each run in its own git worktree; drain a queue N-at-a-time or watch it as a standing worker; race N candidates, first-green-wins; or run agents inside an Apple container.</p>
+        <code class="cmd">adw queue watch --parallel 3 -y
 adw run hotfix … --race 3</code>
       </div>
       <div class="cap code">
@@ -544,9 +544,23 @@ adw run … --isolation container</code>
       <div class="cap pass">
         <p class="k">operate</p>
         <h3>Inspect &amp; recover</h3>
-        <p>Read a run's timeline, transcripts, and gate results; resume a failed run from the step it died on; ship opens a PR that degrades gracefully with no remote.</p>
-        <code class="cmd">adw logs &lt;id&gt;
-adw retry &lt;id&gt;</code>
+        <p>Read a run's timeline, transcripts, and gate results; preview the diff before ship; cancel a run mid-flight; resume/retry from the failed step; land a shipped run after the fact.</p>
+        <code class="cmd">adw status &lt;id&gt; --diff · adw cancel &lt;id&gt;
+adw retry &lt;id&gt; · adw land &lt;id&gt;</code>
+      </div>
+      <div class="cap human">
+        <p class="k">observe &amp; drive</p>
+        <h3>Web dashboard</h3>
+        <p>A local, offline web UI over the same runs, tickets, and gates — live step timelines (SSE), approve / reject / retry buttons, and a drag-to-start ticket board.</p>
+        <code class="cmd">pip install 'adw[ui]'
+adw ui   # http://localhost:8770</code>
+      </div>
+      <div class="cap agent">
+        <p class="k">self-healing</p>
+        <h3>Failures become tickets</h3>
+        <p>With <code>queue.file_failures</code>, a run that ends failed auto-files an investigation ticket (task + failing gate log); a ticket-spawned run won't recurse, so it can't loop forever.</p>
+        <code class="cmd">queue: { file_failures: true }
+adw queue retry &lt;ticket&gt;</code>
       </div>
     </div>
     <div class="note">

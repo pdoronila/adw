@@ -194,6 +194,8 @@ Tickets are markdown with YAML frontmatter in `.adw/tickets/queue/`; they move t
 
 Tickets can declare dependencies with `blocked_by: [<ticket-stem>, ...]` in their frontmatter (or `--blocked-by`, repeatable, on `adw ticket new`): a ticket is claimable only when every blocker's stem is in `done/`, so a failed blocker keeps its dependents blocked until `adw queue retry` re-queues it, and a dependency cycle raises a clear error at claim time. `adw queue list` marks waiting tickets with `[blocked by: ...]`, and `adw queue process` exits with a listing of blocked tickets instead of spinning when everything remaining is blocked.
 
+**Self-healing loop.** Set `queue.file_failures: true` in `adw.yaml` and any run that ends `failed` auto-files an investigation ticket (workflow `auto`, priority 3) capturing the run id, the task, and the last 40 lines of the failing gate log — turning a dead run into queued work. A run spawned from such a ticket carries `source_ticket_run`, which short-circuits re-filing, so an unfixable failure can never spawn an unbounded chain of tickets.
+
 ## Factory router
 
 Don't want to pick the workflow by hand? The router classifies a request and chooses one:
@@ -235,6 +237,13 @@ adw retry 20260716-...                       # re-runs from the failed step; com
 ```
 
 Like resume, retry skips every step already marked `ok`/`skipped` and only re-executes the failed step and everything after it.
+
+Inspect what a run has produced before it ships with `adw status <run-id> --diff`, which prints the run's patch (its branch diff against the base). Stop a run that's still going with `adw cancel <run-id>` — it SIGTERMs the run's process group and keeps the branch/worktree for salvage, so you can pick up where it died with `adw retry <run-id>`:
+
+```bash
+adw status 20260716-... --diff               # review the run's diff against its base branch
+adw cancel 20260716-...                       # terminate a running run; branch/worktree kept
+```
 
 ## Notifications
 
