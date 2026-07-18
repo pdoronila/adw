@@ -620,8 +620,11 @@ def ui(
     port: int = typer.Option(8770, "--port"),
     host: str = typer.Option("127.0.0.1", "--host"),
     no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),
+    reload: bool = typer.Option(
+        False, "--reload", help="Dev mode: auto-restart the server when adw code changes"
+    ),
 ) -> None:
-    """Serve the local web dashboard."""
+    """Serve the local web dashboard (pass --reload while developing it)."""
     try:
         import uvicorn
 
@@ -629,12 +632,24 @@ def ui(
     except ImportError as exc:
         typer.secho("adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red")
         raise typer.Exit(2) from exc
-    app_ = create_app(repo)
     if not no_open:
         import webbrowser
 
         webbrowser.open(f"http://{host}:{port}/")
-    uvicorn.run(app_, host=host, port=port)
+    if reload:
+        # The reloader needs an import string and re-imports in a fresh
+        # process, so the repo path travels via env (see server.app_factory).
+        os.environ["ADW_UI_REPO"] = str(repo)
+        uvicorn.run(
+            "adw.ui.server:app_factory",
+            factory=True,
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=[str(Path(__file__).parent)],
+        )
+    else:
+        uvicorn.run(create_app(repo), host=host, port=port)
 
 
 @app.command()

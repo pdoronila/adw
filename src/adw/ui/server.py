@@ -7,6 +7,7 @@ writes shell out through `runner` (detached CLI) or `tickets` directly.
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -37,6 +38,15 @@ def _asset_version(static_dir: Path) -> str:
     """Content hash of all static assets (not mtime — installs can normalize mtimes)."""
     blobs = sorted(p.name.encode() + p.read_bytes() for p in static_dir.iterdir() if p.is_file())
     return hashlib.md5(b"".join(blobs)).hexdigest()[:8]
+
+
+def app_factory() -> FastAPI:
+    """Entry point for uvicorn's reloader (`adw ui --reload`).
+
+    The reloader needs an import string and re-imports in a fresh process, so
+    the repo path travels via the ADW_UI_REPO env var set by the CLI.
+    """
+    return create_app(Path(os.environ.get("ADW_UI_REPO", ".")).resolve())
 
 
 def create_app(repo: Path) -> FastAPI:
