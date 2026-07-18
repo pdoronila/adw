@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
+
+# worktree add/remove mutate the shared .git/worktrees metadata; concurrent calls
+# from parallel runs (threads) can observe each other's half-written admin dirs.
+_WORKTREE_LOCK = threading.Lock()
 
 
 class GitError(RuntimeError):
@@ -105,12 +110,14 @@ def commit_all(repo: Path, message: str) -> str:
 
 def add_worktree(repo: Path, path: Path, branch: str, base: str) -> None:
     """Create a new worktree at `path` on a fresh `branch` off `base`."""
-    _git(repo, "worktree", "add", "-b", branch, str(path), base)
+    with _WORKTREE_LOCK:
+        _git(repo, "worktree", "add", "-b", branch, str(path), base)
 
 
 def remove_worktree(repo: Path, path: Path) -> None:
     """Remove a worktree (the branch and its commits remain)."""
-    _git(repo, "worktree", "remove", "--force", str(path), check=False)
+    with _WORKTREE_LOCK:
+        _git(repo, "worktree", "remove", "--force", str(path), check=False)
 
 
 def has_remote(repo: Path) -> bool:
@@ -119,6 +126,23 @@ def has_remote(repo: Path) -> bool:
 
 def push_branch(repo: Path, branch: str) -> None:
     _git(repo, "push", "-u", "origin", branch)
+
+
+def fetch(repo: Path, remote: str = "origin") -> None:
+    _git(repo, "fetch", remote)
+
+
+def rebase_onto(repo: Path, onto: str) -> None:
+    """Rebase the current branch onto `onto`; abort and re-raise on conflict."""
+    try:
+        _git(repo, "rebase", onto)
+    except GitError:
+        _git(repo, "rebase", "--abort", check=False)
+        raise
+
+
+def merge_ff_only(repo: Path, branch: str) -> None:
+    _git(repo, "merge", "--ff-only", branch)
 
 
 def create_pr(repo: Path, title: str, body: str) -> str:

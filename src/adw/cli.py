@@ -548,6 +548,40 @@ def retry(
 
 
 @app.command()
+def land(
+    run_id: str = typer.Argument(help="Run id of a shipped run"),
+    repo: Path = REPO_OPT,
+    push: bool = typer.Option(True, "--push/--no-push", help="Push the base branch to origin"),
+    keep_branch: bool = typer.Option(
+        False, "--keep-branch", help="Keep the work branch after landing"
+    ),
+) -> None:
+    """Land a shipped run: rebase its work branch onto the base branch and ff-merge it."""
+    run_dir = rs.runs_root(repo) / run_id
+    if not (run_dir / "state.json").is_file():
+        typer.secho(f"no run {run_id!r} under {rs.runs_root(repo)}", fg="red")
+        raise typer.Exit(1)
+    state = rs.load_state(run_dir)
+    if state.status != "shipped":
+        typer.secho(f"run {run_id} is not shipped (status={state.status})", fg="red")
+        raise typer.Exit(1)
+
+    from adw.workflows import steps
+
+    try:
+        landed, detail = steps.land(state, push=push, keep_branch=keep_branch)
+    except git_ops.GitError as exc:
+        typer.secho(f"land failed: {exc}", fg="red")
+        raise typer.Exit(1) from exc
+    state.outcome_detail = f"{state.outcome_detail}; {detail}" if state.outcome_detail else detail
+    rs.save_state(state, run_dir)
+    if not landed:
+        typer.secho(f"■ {detail}", fg="yellow", bold=True)
+        raise typer.Exit(1)
+    typer.secho(f"■ {detail}", fg="green", bold=True)
+
+
+@app.command()
 def cancel(
     run_id: str = typer.Argument(help="Run id of a running run"),
     repo: Path = REPO_OPT,
