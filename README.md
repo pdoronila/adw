@@ -214,6 +214,8 @@ adw ticket new "login is broken for SSO users" --workflow auto
 adw queue process        # → routed → bug (agent): ...
 ```
 
+The web UI's new-ticket form offers the same thing as a "best guess (auto)" workflow option.
+
 ## Async runs (pause & resume)
 
 By default the engineer gates block the terminal. With `--async`, a run **pauses** at each gate and persists its state instead, so you can approve later (or from elsewhere):

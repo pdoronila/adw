@@ -236,9 +236,17 @@ def changed_files(state: rs.RunState, patch_cap: int = 20_000) -> list[dict[str,
     return files
 
 
+AUTO_OPTION = ("auto", "best guess — router picks the workflow at process time")
+
+
 def workflow_options() -> list[tuple[str, str]]:
-    """(name, description) pairs for the start-run / new-ticket workflow selects."""
+    """(name, description) pairs for the start-run workflow select."""
     return [(name, wf.description) for name, wf in sorted(WORKFLOWS.items())]
+
+
+def ticket_workflow_options() -> list[tuple[str, str]]:
+    """Workflow options for the new-ticket select, including the "auto" sentinel."""
+    return [AUTO_OPTION] + workflow_options()
 
 
 def _sse_frame(event: str, html: str) -> str:

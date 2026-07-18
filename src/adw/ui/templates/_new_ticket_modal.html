@@ -9,8 +9,8 @@
     <div class="row">
       <label>workflow
         <select name="workflow">
-          {% for name, desc in workflows %}
-          <option value="{{ name }}">{{ name }}</option>
+          {% for name, desc in ticket_workflows %}
+          <option value="{{ name }}">{% if name == "auto" %}best guess (auto){% else %}{{ name }}{% endif %}</option>
           {% endfor %}
         </select>
       </label>

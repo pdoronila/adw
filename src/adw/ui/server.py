@@ -78,6 +78,7 @@ def create_app(repo: Path) -> FastAPI:
             "run_count": len(runs),
             "total_spend": sum(r.total_cost_usd for r in runs),
             "workflows": views.workflow_options(),
+            "ticket_workflows": views.ticket_workflow_options(),
             "toast_message": views.toast_message(toast),
             "active_page": active_page,
         }

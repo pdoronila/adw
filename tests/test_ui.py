@@ -165,6 +165,14 @@ def test_modals_present_on_pages(tmp_path: Path) -> None:
         assert 'action="/tickets"' in body
 
 
+def test_new_ticket_modal_offers_best_guess(tmp_path: Path) -> None:
+    body = TestClient(create_app(tmp_path)).get("/tickets").text
+    assert '<option value="auto">' in body
+    assert "best guess" in body
+    # Only the new-ticket modal offers it; POST /runs cannot handle "auto".
+    assert body.count('<option value="auto">') == 1
+
+
 def test_tickets_page_nav_and_active(tmp_path: Path) -> None:
     resp = TestClient(create_app(tmp_path)).get("/tickets")
     assert resp.status_code == 200
@@ -216,6 +224,17 @@ def test_post_tickets_creates_ticket(tmp_path: Path) -> None:
     assert resp.headers["location"] == "/tickets?toast=ticket-created"
     titles = [t.title for t in ticket_mod.list_tickets(tmp_path, "queue")]
     assert "New task" in titles
+
+
+def test_post_tickets_accepts_auto_workflow(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    resp = client.post(
+        "/tickets",
+        data={"title": "Route me", "body": "", "workflow": "auto", "priority": "5"},
+    )
+    assert resp.status_code == 303
+    tickets = ticket_mod.list_tickets(tmp_path, "queue")
+    assert [t.workflow for t in tickets if t.title == "Route me"] == ["auto"]
 
 
 def test_post_ticket_delete(tmp_path: Path) -> None:
