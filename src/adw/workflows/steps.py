@@ -200,6 +200,52 @@ def _discard_work(ctx: WorkflowContext) -> None:
         git_ops.delete_branch(ctx.repo_dir, state.work_branch)
 
 
+def land(state: RunState, *, push: bool = True, keep_branch: bool = False) -> tuple[bool, str]:
+    """Integrate work_branch into base_branch in the MAIN repo (state.repo).
+
+    Returns (landed, detail). Rebase conflicts and a dirty main tree return
+    (False, "manual land needed: ...") without raising — graceful degradation.
+    Other git failures raise GitError.
+    """
+    main = Path(state.repo)
+    base, work = state.base_branch, state.work_branch
+    # state.worktree can be a stale path (cleanup never clears it) — git there
+    # would raise FileNotFoundError, not GitError.
+    live_wt = Path(state.worktree) if state.worktree and Path(state.worktree).exists() else None
+    original_branch = git_ops.current_branch(main)
+    # Under worktree isolation the user may be working in the main tree; the
+    # checkout/merge below would clobber uncommitted changes.
+    if original_branch != work and not git_ops.ensure_clean(main):
+        return (False, f"manual land needed: uncommitted changes in {main}")
+    rebase_repo = live_wt if live_wt is not None else main
+    if rebase_repo is main and original_branch != work:
+        git_ops.checkout(main, work)
+    try:
+        git_ops.rebase_onto(rebase_repo, base)
+    except git_ops.GitError:
+        if rebase_repo is main and original_branch != work:
+            git_ops.checkout(main, original_branch)
+        return (False, f"manual land needed: rebase conflict on {base}")
+    git_ops.checkout(main, base)
+    git_ops.merge_ff_only(main, work)
+    detail = f"landed on {base}"
+    if push and git_ops.has_remote(main):
+        try:
+            git_ops.push_branch(main, base)
+        except git_ops.GitError as exc:
+            typer.secho(f"land: push of {base} failed ({exc}); landed locally", fg="yellow")
+            detail += "; push failed, landed locally"
+    if not keep_branch:
+        if live_wt is not None:
+            # The worktree must go first: delete_branch is check=False, so
+            # deleting a branch still checked out there would fail silently.
+            git_ops.remove_worktree(main, live_wt)
+            state.worktree = None
+        git_ops.delete_branch(main, work)
+        detail += f"; branch {work} deleted"
+    return (True, detail)
+
+
 def start_branch(ctx: WorkflowContext) -> None:
     """Create the work branch (and, under worktree isolation, a dedicated worktree).
 
@@ -571,7 +617,16 @@ def ship(ctx: WorkflowContext, *, title: str | None = None) -> RunOutcome:
     )
     detail = f"commit {commit} on {state.work_branch}"
 
-    if config.ship.create_pr:
+    if config.ship.land:
+        try:
+            landed, land_detail = land(state)
+            detail += f"; {land_detail}"
+            if not landed:
+                typer.secho(f"ship: {land_detail}; branch {state.work_branch} kept", fg="yellow")
+        except git_ops.GitError as exc:
+            detail += f"; land failed ({exc}), branch {state.work_branch} kept"
+            typer.secho(f"ship: land failed ({exc}); branch {state.work_branch} kept", fg="yellow")
+    elif config.ship.create_pr:
         if not git_ops.has_remote(repo):
             detail += f"; PR skipped (no git remote configured), branch {state.work_branch}"
             typer.secho(

@@ -47,6 +47,10 @@ class WorkflowConfig(StrictModel):
 class ShipConfig(StrictModel):
     branch_prefix: str = "adw/"
     create_pr: bool = False
+    # Auto-integrate the work branch into the base branch after ship
+    # (rebase + ff-only merge). Takes precedence over create_pr: when both
+    # are true, the run lands and skips PR creation.
+    land: bool = False
 
 
 class NotifyConfig(StrictModel):

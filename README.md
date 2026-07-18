@@ -86,6 +86,7 @@ workflow:
 ship:
   branch_prefix: "adw/"
   create_pr: false
+  land: false  # auto-merge the work branch into the base branch after ship (wins over create_pr)
 
 limits:
   max_cost_usd: 5.0   # optional: pause the run when total agent cost exceeds this
@@ -159,7 +160,7 @@ What `adw run feature` does:
 6. **Gate loop** *(code)* — run all gates; on failure, feed excerpts back into the **same build session**; repeat up to `max_fix_iterations`
 7. **Review loop** *(agent, fresh session each round, read-only)* — reviews the diff; `VERDICT: concerns` routes the findings back into the **build session** (revise), re-runs the gate loop, and re-reviews, up to `max_review_iterations` rounds; then proceeds to the final gate either way
 8. **Engineer gate 2** — diff summary + review → ship or reject
-9. **Ship** *(code)* — commit on the work branch with a conventional-commit title (`<type>: <subject>`, type inferred from the workflow — feature→feat, bug/hotfix/cve→fix, chore→chore — subject is the task's first line truncated to ~72 chars) and the full task text in the commit body, optional `gh pr create` (PR title matches the commit subject)
+9. **Ship** *(code)* — commit on the work branch with a conventional-commit title (`<type>: <subject>`, type inferred from the workflow — feature→feat, bug/hotfix/cve→fix, chore→chore — subject is the task's first line truncated to ~72 chars) and the full task text in the commit body, optional `gh pr create` (PR title matches the commit subject); with `ship.land: true`, the run then rebases the work branch onto the base branch, fast-forward-merges it, pushes (best-effort), and deletes the branch
 
 Every run leaves a full artifact trail in the target repo under `.adw/runs/<run-id>/`: `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`. Run `adw logs <run-id>` to pretty-print all of this in one place (`--tail N` controls how much of each agent's output is shown, default 500 chars).
 
@@ -275,7 +276,7 @@ isolation:
   adw run hotfix "checkout 500s on empty cart" --race 3
   ```
 
-Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage — `adw retry <run-id>` is how you re-drive it.
+Both need `isolation: worktree` (or `container`) and run unattended (`-y`). Shipped worktrees are cleaned up automatically; a failed run's worktree is kept for salvage — `adw retry <run-id>` is how you re-drive it. With `ship.land: true` a landed run removes its own worktree before deleting the branch. A run that shipped without landing can be landed after the fact with `adw land <run-id> [--push/--no-push] [--keep-branch]` (requires status `shipped`).
 
 ### Container sandboxes (Apple `container`)
 
@@ -329,7 +330,7 @@ adw queue process --all --parallel 3 -y
 
 **Sandboxed.** Set `isolation: {type: container}` and each run's agent + gates execute inside an Apple container (VM-level isolation, nothing touches your host) — composes with worktrees, so `--parallel` still works. Use it for untrusted changes or large fan-outs.
 
-**It never touches `main`.** Every run commits on `adw/<run-id>` and stops. Review the branch (`git diff main..adw/<id>`) or, with `ship.create_pr: true`, let each run push its branch and open its own PR — if there's no git remote (or `gh` isn't installed, or the push/PR call fails) it degrades gracefully: the run still ships, and the branch is left for you to push/PR manually. Merge only on approval; `git branch -D adw/<id>` to discard.
+**It never touches `main`** — by default. Every run commits on `adw/<run-id>` and stops. Review the branch (`git diff main..adw/<id>`) or, with `ship.create_pr: true`, let each run push its branch and open its own PR — if there's no git remote (or `gh` isn't installed, or the push/PR call fails) it degrades gracefully: the run still ships, and the branch is left for you to push/PR manually. Merge only on approval; `git branch -D adw/<id>` to discard. With `ship.land: true` a successful run integrates into the base branch automatically (rebase + fast-forward merge); on a rebase conflict it degrades gracefully too — the run still ships and the branch is left for a manual merge. When `land` and `create_pr` are both true, `land` wins and no PR is opened.
 
 **Editing its own source is safe.** The running `adw` process loads its code once at start, so a run that rewrites `steps.py` won't destabilize itself mid-flight — the change applies on the next invocation.
 
