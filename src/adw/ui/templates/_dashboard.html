@@ -1,0 +1,115 @@
+<div class="stack">
+  <div class="stat-grid">
+    <div class="stat">
+      <span class="stat-label">Active runs</span>
+      <span class="stat-value">{{ status_counts["running"] }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Needs attention</span>
+      <span class="stat-value">{{ attention|length }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Shipped</span>
+      <span class="stat-value">{{ shipped }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Success rate</span>
+      <span class="stat-value">{% if success_rate is not none %}{{ "%.0f%%"|format(success_rate * 100) }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Total spend</span>
+      <span class="stat-value">${{ "%.2f"|format(rollup.total_cost_usd) }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Avg cost/run</span>
+      <span class="stat-value">{% if avg_cost is not none %}${{ "%.2f"|format(avg_cost) }}{% else %}—{% endif %}</span>
+      {% if budget is not none %}<span class="stat-sub">budget ${{ "%.2f"|format(budget) }}/run</span>{% endif %}
+    </div>
+  </div>
+
+  {% if run_count %}
+  <section class="card">
+    <h2>Status</h2>
+    <div class="status-bar">
+      {% for status, count in status_counts.items() if count %}
+      <span class="bar-{{ pill_class(status) }}" style="width: {{ (count / run_count * 100)|round(2) }}%" title="{{ status }}: {{ count }}"></span>
+      {% endfor %}
+    </div>
+    <div class="status-legend">
+      {% for status, count in status_counts.items() if count %}
+      <span class="pill pill-{{ pill_class(status) }}">{{ status }} {{ count }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Needs attention</h2>
+    {% if attention %}
+    <table>
+      <tbody>
+        {% for run in attention %}
+        <tr>
+          <td class="mono"><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+          <td><span class="pill pill-{{ pill_class(run.status) }}">{{ run.status }}</span></td>
+          <td>{% if run.pending_gate %}<span class="chip">gate: {{ run.pending_gate }}</span>{% endif %}</td>
+          <td class="muted mono" title="{{ run.updated_at }}">{{ humanize_ts(run.updated_at) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Nothing needs you.</div>
+    {% endif %}
+  </section>
+
+  <div class="split-2">
+    <section class="card">
+      <h2>Cost by workflow</h2>
+      {% if rollup.runs %}
+      <table>
+        <thead>
+          <tr><th>workflow</th><th class="num">runs</th><th class="num">total</th></tr>
+        </thead>
+        <tbody>
+          {% for name, wc in rollup.workflows.items() %}
+          <tr>
+            <td>{{ name }}</td>
+            <td class="num mono">{{ wc.runs }}</td>
+            <td class="num mono">${{ "%.2f"|format(wc.total_cost_usd) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">No spend yet.</div>
+      {% endif %}
+    </section>
+    <section class="card">
+      <div class="card-head">
+        <h2>Ticket backlog</h2>
+        <a href="/tickets">board →</a>
+      </div>
+      <table>
+        <tbody>
+          <tr><td>queue</td><td class="num mono">{{ board["queue"]|length }}</td></tr>
+          <tr><td>in progress</td><td class="num mono">{{ board["in_progress"]|length }}</td></tr>
+          <tr><td>done</td><td class="num mono">{{ board["done"]|length }}</td></tr>
+          <tr><td>failed</td><td class="num mono">{{ board["failed"]|length }}</td></tr>
+          <tr><td>blocked</td><td class="num mono">{{ blockers|length }}</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="activity muted mono">{{ runs_24h }} runs in 24h · {{ runs_7d }} in 7d{% if avg_fix_attempts is not none %} · avg {{ "%.1f"|format(avg_fix_attempts) }} fix attempts{% endif %}</div>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Recent runs</h2>
+      <a href="/runs">view all {{ run_count }} →</a>
+    </div>
+    {% set runs = recent_runs %}
+    {% include "_runs_table.html" %}
+  </section>
+</div>

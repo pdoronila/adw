@@ -80,8 +80,7 @@
     if (chordPending) {
       chordPending = false;
       clearTimeout(chordTimer);
-      // `g d` kept as a back-compat alias for the old dashboard chord.
-      var chords = { r: "/", d: "/", t: "/tickets" };
+      var chords = { d: "/", r: "/runs", t: "/tickets" };
       if (chords[event.key]) {
         event.preventDefault();
         window.location.href = chords[event.key];

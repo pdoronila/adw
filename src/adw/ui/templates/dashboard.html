@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — adw{% endblock %}
+{% block content %}
+<div id="dashboard-wrap" hx-get="/fragments/dashboard" hx-trigger="every 5s" hx-swap="innerHTML">
+  {% include "_dashboard.html" %}
+</div>
+{% endblock %}

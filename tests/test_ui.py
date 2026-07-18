@@ -129,7 +129,7 @@ def test_runs_page_lists_runs(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1")
 
     client = TestClient(create_app(tmp_path))
-    resp = client.get("/")
+    resp = client.get("/runs")
     assert resp.status_code == 200
     body = resp.text
     assert "r1" in body
@@ -157,7 +157,7 @@ def test_modals_present_on_pages(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1")
     client = TestClient(create_app(tmp_path))
 
-    for path in ("/", "/tickets", "/runs/r1"):
+    for path in ("/", "/runs", "/tickets", "/runs/r1"):
         body = client.get(path).text
         assert 'id="start-run-modal"' in body
         assert 'id="new-ticket-modal"' in body
@@ -498,7 +498,97 @@ def test_fragments_board(tmp_path: Path) -> None:
 
 def test_runs_page_empty_state(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
-    assert "No runs yet" in client.get("/").text
+    assert "No runs yet" in client.get("/runs").text
+
+
+def test_dashboard_home_page(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "won", status="shipped")
+    _seed_run(tmp_path, "lost", status="failed")
+    _seed_run(tmp_path, "live", status="running")
+    _seed_run(tmp_path, "gated", status="awaiting_plan_approval", pending_gate="plan")
+
+    resp = TestClient(create_app(tmp_path)).get("/")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Needs attention" in body
+    assert "Success rate" in body
+    # the paused run is listed in the needs-attention card with a detail link
+    assert '<a href="/runs/gated">gated</a>' in body
+    assert "gate: plan" in body
+    assert "50%" in body  # 1 shipped / 2 terminal
+    assert "Cost by workflow" in body
+    assert "feature" in body
+
+
+def test_dashboard_empty_state(tmp_path: Path) -> None:
+    resp = TestClient(create_app(tmp_path)).get("/")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Success rate" in body
+    assert "—" in body  # None ratios render as an em dash
+    assert "No runs yet" in body  # recent-runs card empty state
+    assert "Nothing needs you" in body
+
+
+def test_fragments_dashboard(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    ticket_mod.write_ticket(tmp_path, "Queued thing", "")
+
+    body = TestClient(create_app(tmp_path)).get("/fragments/dashboard").text
+    assert "r1" in body
+    assert '<td>queue</td><td class="num mono">1</td>' in body
+    assert "hx-" not in body
+
+
+def test_dashboard_metrics_unit() -> None:
+    def mk(run_id: str, status: str, cost: float = 0.0, fix: int = 0) -> RunState:
+        state = RunState(run_id=run_id, workflow="feature", task="t", repo="/tmp")
+        state.status = status  # type: ignore[assignment]
+        state.add_cost(cost)
+        state.fix_attempts = fix
+        return state
+
+    runs = [
+        mk("a", "shipped", cost=2.0, fix=1),
+        mk("b", "failed", cost=1.0, fix=3),
+        mk("c", "running"),
+        mk("d", "awaiting_plan_approval"),
+    ]
+    runs[3].pending_gate = "plan"
+
+    metrics = views.dashboard_metrics(runs)
+    counts = metrics["status_counts"]
+    assert isinstance(counts, dict)
+    assert counts["shipped"] == 1
+    assert counts["failed"] == 1
+    assert counts["cancelled"] == 0  # zero-filled: every status key present
+    assert metrics["terminal"] == 2
+    assert metrics["success_rate"] == 0.5
+    attention = metrics["attention"]
+    assert isinstance(attention, list)
+    assert [r.run_id for r in attention] == ["d"]
+    assert metrics["avg_cost"] == pytest.approx(0.75)
+    assert metrics["avg_fix_attempts"] == pytest.approx(1.0)
+    assert metrics["runs_24h"] == 4
+    assert metrics["runs_7d"] == 4
+
+    empty = views.dashboard_metrics([])
+    assert empty["success_rate"] is None
+    assert empty["avg_cost"] is None
+    assert empty["avg_fix_attempts"] is None
+
+
+def test_runs_nav_links(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    client = TestClient(create_app(tmp_path))
+
+    home = client.get("/").text
+    assert 'href="/runs"' in home
+    assert '<a href="/" class="nav-link active">Dashboard</a>' in home
+
+    runs_body = client.get("/runs").text
+    assert "r1" in runs_body
+    assert 'href="/runs" class="nav-link active"' in runs_body
 
 
 def test_toast_rendering(tmp_path: Path) -> None:

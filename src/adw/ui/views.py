@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import get_args
 
 import markdown  # type: ignore[import-untyped]
 
@@ -105,6 +106,34 @@ def clock_ts(dt: datetime) -> str:
 def list_runs(repo: Path) -> list[rs.RunState]:
     """All runs, newest first (for the dashboard table)."""
     return list(reversed(rs.list_runs(repo)))
+
+
+def dashboard_metrics(runs: list[rs.RunState]) -> dict[str, object]:
+    """Aggregate health/cost/throughput metrics for the dashboard page.
+
+    Ratios are None (not 0) when their denominator is empty so templates can
+    render an em dash instead of a misleading zero.
+    """
+    status_counts: dict[str, int] = {status: 0 for status in get_args(rs.RunStatus)}
+    for run in runs:
+        status_counts[run.status] += 1
+    terminal = sum(status_counts[status] for status in TERMINAL)
+    shipped = status_counts["shipped"]
+    rollup = rs.cost_rollup(runs)
+    now = datetime.now(UTC)
+    return {
+        "status_counts": status_counts,
+        "active": [run for run in runs if run.status == "running"],
+        "attention": [run for run in runs if run.status in PAUSED],
+        "terminal": terminal,
+        "shipped": shipped,
+        "success_rate": shipped / terminal if terminal else None,
+        "rollup": rollup,
+        "avg_cost": rollup.total_cost_usd / rollup.runs if rollup.runs else None,
+        "runs_24h": sum(1 for run in runs if now - run.created_at <= timedelta(hours=24)),
+        "runs_7d": sum(1 for run in runs if now - run.created_at <= timedelta(days=7)),
+        "avg_fix_attempts": sum(r.fix_attempts for r in runs) / len(runs) if runs else None,
+    }
 
 
 def get_state(repo: Path, run_id: str) -> rs.RunState | None:

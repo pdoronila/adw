@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from adw.config import load_config
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
 from adw.ui import runner, views
@@ -67,8 +68,11 @@ def create_app(repo: Path) -> FastAPI:
             ],
         }
 
-    def _page_context(active_page: str, toast: str) -> dict[str, object]:
-        runs = views.list_runs(repo)
+    def _page_context(
+        active_page: str, toast: str, runs: list[rs.RunState] | None = None
+    ) -> dict[str, object]:
+        if runs is None:
+            runs = views.list_runs(repo)
         return {
             **_board_context(),
             "run_count": len(runs),
@@ -93,7 +97,29 @@ def create_app(repo: Path) -> FastAPI:
             rounds.append({"attempt": round_.get("attempt"), "results": results})
         return rounds
 
+    def _dashboard_context(runs: list[rs.RunState]) -> dict[str, object]:
+        """Dashboard metrics plus page-level extras, from one already-listed `runs`."""
+        try:
+            budget = load_config(repo).limits.max_cost_usd
+        except Exception:
+            budget = None  # a broken adw.yaml must never 500 the dashboard
+        return {
+            **views.dashboard_metrics(runs),
+            "recent_runs": runs[:8],
+            "run_count": len(runs),
+            "budget": budget,
+        }
+
     @app.get("/", response_class=HTMLResponse)
+    def dashboard_page(request: Request, toast: str = "") -> HTMLResponse:
+        runs = views.list_runs(repo)
+        return templates.TemplateResponse(
+            request,
+            "dashboard.html",
+            {**_page_context("dashboard", toast, runs=runs), **_dashboard_context(runs)},
+        )
+
+    @app.get("/runs", response_class=HTMLResponse)
     def runs_page(
         request: Request, q: str = "", status: str = "", toast: str = ""
     ) -> HTMLResponse:
@@ -128,6 +154,14 @@ def create_app(repo: Path) -> FastAPI:
                 "runs": views.filter_runs(runs, q, status),
                 "run_count": len(runs),
             },
+        )
+
+    @app.get("/fragments/dashboard", response_class=HTMLResponse)
+    def fragment_dashboard(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "_dashboard.html",
+            {**_dashboard_context(views.list_runs(repo)), **_board_context()},
         )
 
     @app.get("/fragments/board", response_class=HTMLResponse)
