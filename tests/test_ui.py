@@ -193,6 +193,7 @@ def test_run_detail_renders_artifacts(tmp_path: Path) -> None:
     assert "lint" in body
     assert "$1.23" in body
     assert "The Plan" in body
+    assert 'id="plan"' in body
 
     assert client.get("/runs/nope").status_code == 404
 
@@ -213,6 +214,27 @@ def test_action_buttons_by_status(tmp_path: Path) -> None:
 
     live_body = client.get("/runs/live").text
     assert "Cancel" in live_body
+    assert 'sse-swap="plan"' in live_body
+    assert 'sse-swap="plan"' not in paused_body
+
+
+def test_run_events_stream_includes_plan(tmp_path: Path) -> None:
+    run_dir = _seed_run(tmp_path, "r1", status="awaiting_plan_approval", pending_gate="plan")
+    (run_dir / "plan.md").write_text("# The Plan\n\nDo the thing.")
+
+    resp = TestClient(create_app(tmp_path)).get("/runs/r1/events")
+    assert resp.status_code == 200
+    assert "event: plan" in resp.text
+    assert "The Plan" in resp.text
+    assert "event: timeline" in resp.text
+
+
+def test_run_events_plan_frame_empty_without_plan_file(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1", status="awaiting_plan_approval", pending_gate="plan")
+
+    resp = TestClient(create_app(tmp_path)).get("/runs/r1/events")
+    assert resp.status_code == 200
+    assert "event: plan" in resp.text
 
 
 def test_post_tickets_creates_ticket(tmp_path: Path) -> None:

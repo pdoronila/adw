@@ -19,14 +19,11 @@
       {% include "_timeline.html" %}
     </div>
   </section>
-</div>
 
-{% if plan_html %}
-<section class="card">
-  <h3>Plan</h3>
-  <div class="markdown">{{ plan_html|safe }}</div>
-</section>
-{% endif %}
+  <div id="plan"{% if live %} sse-swap="plan"{% endif %}>
+    {% include "_plan.html" %}
+  </div>
+</div>
 
 {% if changed_files %}
 <section class="card">
