@@ -14,6 +14,7 @@ class ScriptedTurn:
     output: str = "ok"
     ok: bool = True
     session_id: str = "mock-session-1"
+    cost_usd: float | None = None
     on_invoke: Callable[[AgentInvocation], None] | None = None
 
 
@@ -40,6 +41,7 @@ class MockAdapter(AgentAdapter):
             ok=turn.ok,
             output=turn.output,
             session_id=turn.session_id,
+            cost_usd=turn.cost_usd,
             exit_code=0 if turn.ok else 1,
             duration_s=0.0,
             error="" if turn.ok else "mock failure",

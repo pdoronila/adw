@@ -136,6 +136,14 @@ def test_runs_page_lists_runs(tmp_path: Path) -> None:
     assert "feature" in body
 
 
+def test_sidebar_shows_total_spend(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")  # seeds add_cost(1.23)
+
+    body = TestClient(create_app(tmp_path)).get("/").text
+    assert "Spend" in body
+    assert "$1.23" in body
+
+
 def test_tickets_page_lists_tickets(tmp_path: Path) -> None:
     ticket_mod.write_ticket(tmp_path, "Fix login", "details")
 

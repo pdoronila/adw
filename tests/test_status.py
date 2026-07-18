@@ -18,10 +18,10 @@ EXPECTED_KEYS = {"run_id", "workflow", "status", "total_cost_usd", "outcome_deta
 CHANGED_LINE = "return 'howdy'"
 
 
-def _seed_run(repo: Path, run_id: str) -> None:
+def _seed_run(repo: Path, run_id: str, workflow: str = "feature", cost: float = 0.25) -> None:
     run_dir = create_run_dir(repo, run_id)
-    state = RunState(run_id=run_id, workflow="feature", task="t", repo=str(repo))
-    state.add_cost(0.25)
+    state = RunState(run_id=run_id, workflow=workflow, task="t", repo=str(repo))
+    state.add_cost(cost)
     state.outcome_detail = "did the thing"
     save_state(state, run_dir)
 
@@ -108,3 +108,36 @@ def test_status_diff_requires_run_id(tmp_path: Path) -> None:
     result = runner.invoke(app, ["status", "--diff", "--repo", str(tmp_path)])
     assert result.exit_code == 1
     assert "requires a run id" in result.output
+
+
+def test_status_costs_plain(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1", workflow="feature", cost=0.25)
+    _seed_run(tmp_path, "r2", workflow="feature", cost=0.50)
+    _seed_run(tmp_path, "r3", workflow="bug", cost=1.00)
+
+    result = runner.invoke(app, ["status", "--costs", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert any("bug" in line and "1 runs" in line and "$    1.00" in line for line in lines)
+    assert any("feature" in line and "2 runs" in line and "$    0.75" in line for line in lines)
+    assert "total" in lines[-1] and "3 runs" in lines[-1] and "$    1.75" in lines[-1]
+
+
+def test_status_costs_json(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1", workflow="feature", cost=0.25)
+    _seed_run(tmp_path, "r2", workflow="bug", cost=1.00)
+
+    result = runner.invoke(app, ["status", "--costs", "--json", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["runs"] == 2
+    assert data["total_cost_usd"] == 1.25
+    assert data["workflows"]["feature"] == {"runs": 1, "total_cost_usd": 0.25}
+    assert data["workflows"]["bug"] == {"runs": 1, "total_cost_usd": 1.00}
+
+
+def test_status_costs_rejects_run_id(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")
+    result = runner.invoke(app, ["status", "r1", "--costs", "--repo", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "cannot be combined" in result.output
