@@ -619,7 +619,12 @@ def cancel(
 def ui(
     repo: Path = REPO_OPT,
     port: int = typer.Option(8770, "--port"),
-    host: str = typer.Option("127.0.0.1", "--host"),
+    host: str = typer.Option(
+        "0.0.0.0",
+        "--host",
+        help="Interface to bind (default 0.0.0.0 exposes the UI to the local network; "
+        "pass 127.0.0.1 for localhost only)",
+    ),
     no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),
     reload: bool = typer.Option(
         False, "--reload", help="Dev mode: auto-restart the server when adw code changes"
@@ -641,7 +646,9 @@ def ui(
     if not no_open:
         import webbrowser
 
-        webbrowser.open(f"http://{host}:{port}/")
+        # 0.0.0.0 isn't a browsable address — open via localhost instead.
+        browse_host = "127.0.0.1" if host == "0.0.0.0" else host
+        webbrowser.open(f"http://{browse_host}:{port}/")
     if reload:
         # The reloader needs an import string and re-imports in a fresh
         # process, so the repo paths travel via env (see server.app_factory).
