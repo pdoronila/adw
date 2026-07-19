@@ -6,7 +6,7 @@
 <span class="nav-run-status"><span class="pill pill-{{ pill_class(state.status) }}">{{ state.status }}</span></span>
 {% endblock %}
 {% block content %}
-<div {% if live %}hx-ext="sse" sse-connect="/runs/{{ state.run_id }}/events"{% endif %} class="sse-scope">
+<div {% if live %}hx-ext="sse" sse-connect="{{ root }}/runs/{{ state.run_id }}/events"{% endif %} class="sse-scope">
   <section class="card">
     <div id="run-head"{% if live %} sse-swap="runhead"{% endif %}>
       {% include "_run_head.html" %}

@@ -4,19 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}adw{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+  <link rel="stylesheet" href="{{ root }}/static/app.css?v={{ asset_v }}">
   <!-- vendored: htmx 2.0.10 + htmx-ext-sse 2.2.4 -->
-  <script src="/static/htmx.min.js?v={{ asset_v }}"></script>
-  <script src="/static/sse.js?v={{ asset_v }}"></script>
+  <script src="{{ root }}/static/htmx.min.js?v={{ asset_v }}"></script>
+  <script src="{{ root }}/static/sse.js?v={{ asset_v }}"></script>
 </head>
-<body>
+<body data-root="{{ root }}">
   <aside class="sidebar">
-    <a class="brand" href="/">adw<span class="cursor">▌</span></a>
+    <a class="brand" href="{{ root }}/">adw<span class="cursor">▌</span></a>
     <nav class="nav">
+      <span class="nav-label">Repo</span>
+      {% for r in repos %}
+      <a href="{{ r.root }}/" class="nav-link{% if r.root == root %} active{% endif %}">{{ r.label }}</a>
+      {% endfor %}
       <span class="nav-label">Navigate</span>
-      <a href="/" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
-      <a href="/runs" class="nav-link{% if active_page == 'runs' %} active{% endif %}">Runs <span class="count">{{ run_count }}</span></a>
-      <a href="/tickets" class="nav-link{% if active_page == 'tickets' %} active{% endif %}">Tickets <span class="count">{{ queue_count }}</span></a>
+      <a href="{{ root }}/" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+      <a href="{{ root }}/runs" class="nav-link{% if active_page == 'runs' %} active{% endif %}">Runs <span class="count">{{ run_count }}</span></a>
+      <a href="{{ root }}/tickets" class="nav-link{% if active_page == 'tickets' %} active{% endif %}">Tickets <span class="count">{{ queue_count }}</span></a>
       <span class="nav-label">Actions</span>
       <button type="button" class="nav-link nav-action" data-modal-open="start-run-modal">Start a run</button>
       <button type="button" class="nav-link nav-action" data-modal-open="new-ticket-modal">New ticket</button>
@@ -44,6 +48,6 @@
   {% if toast_message %}
   <div class="toast" id="toast" role="status">{{ toast_message }}</div>
   {% endif %}
-  <script src="/static/app.js?v={{ asset_v }}" defer></script>
+  <script src="{{ root }}/static/app.js?v={{ asset_v }}" defer></script>
 </body>
 </html>

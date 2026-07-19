@@ -50,7 +50,7 @@
       <tbody>
         {% for run in attention %}
         <tr>
-          <td class="mono"><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+          <td class="mono"><a href="{{ root }}/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
           <td><span class="pill pill-{{ pill_class(run.status) }}">{{ run.status }}</span></td>
           <td>{% if run.pending_gate %}<span class="chip">gate: {{ run.pending_gate }}</span>{% endif %}</td>
           <td class="muted mono" title="{{ run.updated_at }}">{{ humanize_ts(run.updated_at) }}</td>
@@ -88,7 +88,7 @@
     <section class="card">
       <div class="card-head">
         <h2>Ticket backlog</h2>
-        <a href="/tickets">board →</a>
+        <a href="{{ root }}/tickets">board →</a>
       </div>
       <table>
         <tbody>
@@ -107,7 +107,7 @@
   <section class="card">
     <div class="card-head">
       <h2>Recent runs</h2>
-      <a href="/runs">view all {{ run_count }} →</a>
+      <a href="{{ root }}/runs">view all {{ run_count }} →</a>
     </div>
     {% set runs = recent_runs %}
     {% include "_runs_table.html" %}

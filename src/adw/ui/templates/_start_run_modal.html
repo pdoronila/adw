@@ -3,7 +3,7 @@
     <h2>Start a run</h2>
     <button type="button" class="ghost modal-close" data-modal-close aria-label="Close">✕</button>
   </div>
-  <form class="stack" method="post" action="/runs">
+  <form class="stack" method="post" action="{{ root }}/runs">
     <label>workflow
       <select name="workflow">
         {% for name, desc in workflows %}

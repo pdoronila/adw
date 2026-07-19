@@ -629,18 +629,23 @@ def ui(
     try:
         import uvicorn
 
-        from adw.ui.server import create_app
+        from adw.ui.server import create_root_app
     except ImportError as exc:
         typer.secho("adw ui needs the UI extra — install with: pip install 'adw[ui]'", fg="red")
         raise typer.Exit(2) from exc
+    from adw import registry
+
+    registry.register_repo(repo)
+    # Selected repo first = default tenant; then every other registered repo.
+    repos = [repo.resolve()] + [p for p in registry.list_repos() if p != repo.resolve()]
     if not no_open:
         import webbrowser
 
         webbrowser.open(f"http://{host}:{port}/")
     if reload:
         # The reloader needs an import string and re-imports in a fresh
-        # process, so the repo path travels via env (see server.app_factory).
-        os.environ["ADW_UI_REPO"] = str(repo)
+        # process, so the repo paths travel via env (see server.app_factory).
+        os.environ["ADW_UI_REPOS"] = os.pathsep.join(str(p) for p in repos)
         uvicorn.run(
             "adw.ui.server:app_factory",
             factory=True,
@@ -650,7 +655,7 @@ def ui(
             reload_dirs=[str(Path(__file__).parent)],
         )
     else:
-        uvicorn.run(create_app(repo), host=host, port=port)
+        uvicorn.run(create_root_app(repos), host=host, port=port)
 
 
 @app.command()

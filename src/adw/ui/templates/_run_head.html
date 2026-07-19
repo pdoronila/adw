@@ -15,18 +15,18 @@
 
   <div class="run-actions">
     {% if state.status in ("paused", "awaiting_plan_approval", "awaiting_final_review") %}
-    <form method="post" action="/runs/{{ state.run_id }}/approve">
+    <form method="post" action="{{ root }}/runs/{{ state.run_id }}/approve">
       <button type="submit">Approve</button>
     </form>
-    <form method="post" action="/runs/{{ state.run_id }}/reject">
+    <form method="post" action="{{ root }}/runs/{{ state.run_id }}/reject">
       <button type="submit" class="danger">Reject</button>
     </form>
     {% elif state.status == "failed" %}
-    <form method="post" action="/runs/{{ state.run_id }}/retry">
+    <form method="post" action="{{ root }}/runs/{{ state.run_id }}/retry">
       <button type="submit">Retry</button>
     </form>
     {% elif state.status == "running" %}
-    <form method="post" action="/runs/{{ state.run_id }}/cancel">
+    <form method="post" action="{{ root }}/runs/{{ state.run_id }}/cancel">
       <button type="submit" class="danger">Cancel</button>
     </form>
     {% endif %}

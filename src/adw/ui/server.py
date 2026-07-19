@@ -2,6 +2,10 @@
 
 All routes close over a single `repo` and are thin: reads go through `views`,
 writes shell out through `runner` (detached CLI) or `tickets` directly.
+
+Multi-repo serving: `create_root_app` mounts one `create_app(...)` sub-app per
+registered repo at `/r/<slug>`, so each tenant's runs/tickets/SSE stay isolated
+by construction — every sub-app closes over its own `repo`.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from adw import registry
 from adw.config import load_config
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
@@ -44,18 +49,58 @@ def app_factory() -> FastAPI:
     """Entry point for uvicorn's reloader (`adw ui --reload`).
 
     The reloader needs an import string and re-imports in a fresh process, so
-    the repo path travels via the ADW_UI_REPO env var set by the CLI.
+    the repo paths travel via the ADW_UI_REPOS env var (os.pathsep-joined,
+    default repo first) set by the CLI; ADW_UI_REPO remains as a single-repo
+    fallback.
     """
-    return create_app(Path(os.environ.get("ADW_UI_REPO", ".")).resolve())
+    joined = os.environ.get("ADW_UI_REPOS")
+    if joined:
+        paths = [Path(p).resolve() for p in joined.split(os.pathsep) if p]
+    else:
+        paths = [Path(os.environ.get("ADW_UI_REPO", ".")).resolve()]
+    return create_root_app(paths)
 
 
-def create_app(repo: Path) -> FastAPI:
+def create_root_app(repo_paths: list[Path]) -> FastAPI:
+    """Root app mounting one tenant dashboard per repo at /r/<slug>."""
+    repos: list[Path] = []
+    for path in repo_paths:
+        resolved = path.resolve()
+        if resolved.is_dir() and resolved not in repos:
+            repos.append(resolved)
+    if not repos:
+        raise ValueError("create_root_app needs at least one existing repo directory")
+
+    slugged = registry.repo_slugs(repos)
+    infos = [
+        {"slug": slug, "label": path.name, "root": f"/r/{slug}"} for slug, path in slugged
+    ]
+    app = FastAPI(title="adw")
+    for info, (_, path) in zip(infos, slugged, strict=True):
+        app.mount(info["root"], create_app(path, root=info["root"], repos=infos))
+
+    @app.get("/")
+    def index() -> RedirectResponse:
+        # First repo = default tenant (the CLI puts the --repo arg first).
+        return RedirectResponse(f"/r/{infos[0]['slug']}/")
+
+    return app
+
+
+def create_app(
+    repo: Path, *, root: str = "", repos: list[dict[str, str]] | None = None
+) -> FastAPI:
+    if repos is None:
+        repos = [{"slug": repo.name, "label": repo.name, "root": root}]
     app = FastAPI(title="adw")
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals["pill_class"] = views.pill_class
     templates.env.globals["humanize_ts"] = views.humanize_ts
     templates.env.globals["clock_ts"] = views.clock_ts
     templates.env.globals["asset_v"] = _asset_version(_HERE / "static")
+    # An env global (not a context processor) so the SSE path's bare .render()
+    # calls resolve it too.
+    templates.env.globals["root"] = root
     app.mount("/static", _NoCacheStaticFiles(directory=str(_HERE / "static")), name="static")
 
     def _board_context() -> dict[str, object]:
@@ -93,6 +138,7 @@ def create_app(repo: Path) -> FastAPI:
             "ticket_workflows": views.ticket_workflow_options(),
             "toast_message": views.toast_message(toast),
             "active_page": active_page,
+            "repos": repos,
         }
 
     def _gate_rounds(state: rs.RunState) -> list[dict[str, object]]:
@@ -244,27 +290,27 @@ def create_app(repo: Path) -> FastAPI:
     ) -> RedirectResponse:
         run_id = rs.new_run_id(task)
         runner.start_run(repo, run_id, workflow, task, model, backend, isolation)
-        return RedirectResponse(f"/runs/{run_id}?toast=run-started", status_code=303)
+        return RedirectResponse(f"{root}/runs/{run_id}?toast=run-started", status_code=303)
 
     @app.post("/runs/{run_id}/approve")
     def approve_run(run_id: str) -> RedirectResponse:
         runner.resume_run(repo, run_id, "approve")
-        return RedirectResponse(f"/runs/{run_id}?toast=approved", status_code=303)
+        return RedirectResponse(f"{root}/runs/{run_id}?toast=approved", status_code=303)
 
     @app.post("/runs/{run_id}/reject")
     def reject_run(run_id: str) -> RedirectResponse:
         runner.resume_run(repo, run_id, "reject")
-        return RedirectResponse(f"/runs/{run_id}?toast=rejected", status_code=303)
+        return RedirectResponse(f"{root}/runs/{run_id}?toast=rejected", status_code=303)
 
     @app.post("/runs/{run_id}/retry")
     def retry_run(run_id: str) -> RedirectResponse:
         runner.retry_run(repo, run_id)
-        return RedirectResponse(f"/runs/{run_id}?toast=retry-started", status_code=303)
+        return RedirectResponse(f"{root}/runs/{run_id}?toast=retry-started", status_code=303)
 
     @app.post("/runs/{run_id}/cancel")
     def cancel_run(run_id: str) -> RedirectResponse:
         runner.cancel_run(repo, run_id)
-        return RedirectResponse(f"/runs/{run_id}?toast=cancel-requested", status_code=303)
+        return RedirectResponse(f"{root}/runs/{run_id}?toast=cancel-requested", status_code=303)
 
     @app.post("/tickets")
     def create_ticket(
@@ -278,7 +324,7 @@ def create_app(repo: Path) -> FastAPI:
         ticket_mod.write_ticket(
             repo, title, body, workflow=workflow, priority=int(priority), blocked_by=clean or None
         )
-        return RedirectResponse("/tickets?toast=ticket-created", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=ticket-created", status_code=303)
 
     @app.post("/tickets/{ticket_id}/delete")
     def delete_ticket(ticket_id: str) -> RedirectResponse:
@@ -287,7 +333,7 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.remove(ticket)
-        return RedirectResponse("/tickets?toast=ticket-deleted", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=ticket-deleted", status_code=303)
 
     @app.post("/tickets/{ticket_id}/requeue")
     def requeue_ticket(ticket_id: str) -> RedirectResponse:
@@ -298,7 +344,7 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.requeue(repo, ticket)
-        return RedirectResponse("/tickets?toast=ticket-requeued", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=ticket-requeued", status_code=303)
 
     @app.post("/tickets/{ticket_id}/archive")
     def archive_ticket(ticket_id: str) -> RedirectResponse:
@@ -307,12 +353,12 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         ticket_mod.archive(repo, ticket)
-        return RedirectResponse("/tickets?toast=ticket-archived", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=ticket-archived", status_code=303)
 
     @app.post("/queue/process")
     def queue_process() -> RedirectResponse:
         runner.process_queue(repo)
-        return RedirectResponse("/tickets?toast=queue-processing", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=queue-processing", status_code=303)
 
     @app.post("/tickets/{ticket_id}/start")
     def start_ticket(ticket_id: str) -> RedirectResponse:
@@ -323,8 +369,8 @@ def create_app(repo: Path) -> FastAPI:
         except ticket_mod.TicketError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         if ticket_mod.pending_blockers(ticket, ticket_mod.done_stems(repo)):
-            return RedirectResponse("/tickets?toast=ticket-blocked", status_code=303)
+            return RedirectResponse(f"{root}/tickets?toast=ticket-blocked", status_code=303)
         runner.start_ticket(repo, ticket.id)
-        return RedirectResponse("/tickets?toast=ticket-started", status_code=303)
+        return RedirectResponse(f"{root}/tickets?toast=ticket-started", status_code=303)
 
     return app

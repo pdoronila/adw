@@ -16,21 +16,21 @@
       {% endif %}
       <div class="ticket-actions">
         {% if state == "queue" and not blockers.get(ticket.id) %}
-        <form method="post" action="/tickets/{{ ticket.id }}/start">
+        <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/start">
           <button type="submit" class="ghost">Start</button>
         </form>
         {% endif %}
         {% if state == "failed" %}
-        <form method="post" action="/tickets/{{ ticket.id }}/requeue">
+        <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/requeue">
           <button type="submit" class="ghost">Requeue</button>
         </form>
         {% endif %}
         {% if state == "done" %}
-        <form method="post" action="/tickets/{{ ticket.id }}/archive">
+        <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/archive">
           <button type="submit" class="ghost">Archive</button>
         </form>
         {% endif %}
-        <form method="post" action="/tickets/{{ ticket.id }}/delete">
+        <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/delete">
           <button type="submit" class="danger">Remove</button>
         </form>
       </div>

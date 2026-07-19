@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from adw.queue import tickets as ticket_mod  # noqa: E402
 from adw.state.run_state import RunState, create_run_dir, save_state  # noqa: E402
 from adw.ui import views  # noqa: E402
-from adw.ui.server import create_app  # noqa: E402
+from adw.ui.server import create_app, create_root_app  # noqa: E402
 
 
 def _seed_run(
@@ -856,6 +856,111 @@ def test_clock_ts() -> None:
 
     dt = datetime(2026, 7, 17, 18, 44, 11, tzinfo=UTC)
     assert views.clock_ts(dt) == "18:44:11"
+
+
+def _two_repos(tmp_path: Path) -> tuple[Path, Path]:
+    alpha = tmp_path / "alpha"
+    beta = tmp_path / "beta"
+    alpha.mkdir()
+    beta.mkdir()
+    return alpha, beta
+
+
+def test_multi_app_repo_isolation(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    _seed_run(alpha, "r1")
+    ticket_mod.write_ticket(beta, "Beta ticket", "")
+    client = TestClient(create_root_app([alpha, beta]))
+
+    assert "r1" in client.get("/r/alpha/runs").text
+    assert "r1" not in client.get("/r/beta/runs").text
+    assert "Beta ticket" in client.get("/r/beta/tickets").text
+    assert "Beta ticket" not in client.get("/r/alpha/tickets").text
+
+
+def test_root_redirects_to_default_repo(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    client = TestClient(create_root_app([alpha, beta]))
+
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/r/alpha/"
+
+
+def test_sidebar_switcher(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    body = TestClient(create_root_app([alpha, beta])).get("/r/alpha/").text
+    assert 'href="/r/beta/"' in body
+    assert '<a href="/r/alpha/" class="nav-link active">alpha</a>' in body
+
+    solo = TestClient(create_root_app([alpha])).get("/r/alpha/").text
+    assert '<a href="/r/alpha/" class="nav-link active">alpha</a>' in solo
+
+
+def test_prefixed_urls_and_redirects(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    client = TestClient(create_root_app([alpha, beta]))
+
+    body = client.get("/r/alpha/tickets").text
+    assert 'action="/r/alpha/tickets"' in body
+    assert 'hx-get="/r/alpha/fragments/board"' in body
+    assert 'data-root="/r/alpha"' in body
+
+    resp = client.post(
+        "/r/alpha/tickets",
+        data={"title": "Alpha task", "body": "", "workflow": "feature", "priority": "5"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/r/alpha/tickets?toast=ticket-created"
+    assert [t.title for t in ticket_mod.list_tickets(alpha, "queue")] == ["Alpha task"]
+    assert ticket_mod.list_tickets(beta, "queue") == []
+
+
+def test_sse_frames_carry_prefix(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    _seed_run(alpha, "r1", status="awaiting_plan_approval", pending_gate="plan")
+
+    resp = TestClient(create_root_app([alpha, beta])).get("/r/alpha/runs/r1/events")
+    assert resp.status_code == 200
+    # env-global root reaches the bare .render() calls on the SSE path
+    assert "/r/alpha/runs/r1/approve" in resp.text
+
+
+def test_slug_collision_mounts_both(tmp_path: Path) -> None:
+    app_x = tmp_path / "x" / "app"
+    app_y = tmp_path / "y" / "app"
+    app_x.mkdir(parents=True)
+    app_y.mkdir(parents=True)
+    client = TestClient(create_root_app([app_x, app_y]))
+
+    assert client.get("/r/app/").status_code == 200
+    assert client.get("/r/app-2/").status_code == 200
+
+
+def test_run_detail_under_mount(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    _seed_run(alpha, "r1", status="running")
+    client = TestClient(create_root_app([alpha, beta]))
+
+    resp = client.get("/r/alpha/runs/r1")
+    assert resp.status_code == 200
+    assert 'sse-connect="/r/alpha/runs/r1/events"' in resp.text
+    assert client.get("/r/alpha/static/app.js").status_code == 200
+
+
+def test_start_ticket_spawns_with_correct_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    captured = _install_fake_popen(monkeypatch)
+    stem = ticket_mod.write_ticket(beta, "Start me", "").stem
+    client = TestClient(create_root_app([alpha, beta]))
+
+    resp = client.post(f"/r/beta/tickets/{stem}/start", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/r/beta/tickets?toast=ticket-started"
+    assert captured[-1][-2:] == ["--repo", str(beta)]
 
 
 def test_python_m_adw_version() -> None:

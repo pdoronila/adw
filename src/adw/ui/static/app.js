@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  // Tenant URL prefix ("/r/<slug>" under the multi-repo root app, "" standalone).
+  var ROOT = document.body.getAttribute("data-root") || "";
+
   // Toast: auto-dismiss and strip the ?toast= param so refresh doesn't re-toast.
   var toast = document.getElementById("toast");
   if (toast) {
@@ -47,7 +50,7 @@
     // action forms (Start/Requeue/Remove) submit as usual and never open it.
     var card = target.closest("[data-ticket-detail]");
     if (card && !target.closest("form") && !document.querySelector("dialog[open]")) {
-      fetch("/fragments/tickets/" + encodeURIComponent(card.getAttribute("data-ticket-detail")))
+      fetch(ROOT + "/fragments/tickets/" + encodeURIComponent(card.getAttribute("data-ticket-detail")))
         .then(function (resp) { return resp.ok ? resp.text() : null; })
         .then(function (html) {
           if (!html) return;
@@ -93,7 +96,7 @@
     if (chordPending) {
       chordPending = false;
       clearTimeout(chordTimer);
-      var chords = { d: "/", r: "/runs", t: "/tickets" };
+      var chords = { d: ROOT + "/", r: ROOT + "/runs", t: ROOT + "/tickets" };
       if (chords[event.key]) {
         event.preventDefault();
         window.location.href = chords[event.key];
@@ -151,7 +154,7 @@
     // Plain POST → 303 → toast, same as the button actions.
     var form = document.createElement("form");
     form.method = "post";
-    form.action = "/tickets/" + encodeURIComponent(id) + "/start";
+    form.action = ROOT + "/tickets/" + encodeURIComponent(id) + "/start";
     document.body.appendChild(form);
     form.submit();
   });

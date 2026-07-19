@@ -4,11 +4,11 @@
 <section class="card" id="tickets">
   <div class="card-head">
     <h2>Tickets</h2>
-    <form method="post" action="/queue/process">
+    <form method="post" action="{{ root }}/queue/process">
       <button type="submit" class="ghost">Process queue</button>
     </form>
   </div>
-  <div id="board-wrap" hx-get="/fragments/board" hx-trigger="every 5s [!window.adwDragging]" hx-swap="innerHTML">
+  <div id="board-wrap" hx-get="{{ root }}/fragments/board" hx-trigger="every 5s [!window.adwDragging]" hx-swap="innerHTML">
     {% include "_board.html" %}
   </div>
   {% if archived %}
@@ -21,10 +21,10 @@
         {% if ticket.body %}<div class="ticket-body">{{ ticket.body }}</div>{% endif %}
         <div class="ticket-meta">p{{ ticket.priority }} · {{ ticket.workflow }}</div>
         <div class="ticket-actions">
-          <form method="post" action="/tickets/{{ ticket.id }}/requeue">
+          <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/requeue">
             <button type="submit" class="ghost">Requeue</button>
           </form>
-          <form method="post" action="/tickets/{{ ticket.id }}/delete">
+          <form method="post" action="{{ root }}/tickets/{{ ticket.id }}/delete">
             <button type="submit" class="danger">Remove</button>
           </form>
         </div>

@@ -1,5 +1,5 @@
 <tr>
-  <td class="mono"><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+  <td class="mono"><a href="{{ root }}/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
   <td>{{ run.workflow }}</td>
   <td class="snippet" title="{{ run.task }}">{{ run.task }}</td>
   <td><span class="pill pill-{{ pill_class(run.status) }}">{{ run.status }}</span></td>
