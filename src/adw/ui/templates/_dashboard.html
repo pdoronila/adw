@@ -46,6 +46,7 @@
   <section class="card">
     <h2>Needs attention</h2>
     {% if attention %}
+    <div class="table-scroll">
     <table>
       <tbody>
         {% for run in attention %}
@@ -58,6 +59,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="empty">Nothing needs you.</div>
     {% endif %}

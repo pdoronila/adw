@@ -839,6 +839,14 @@ def test_static_assets_cache_busted(tmp_path: Path) -> None:
     assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
 
 
+def test_stylesheet_has_mobile_tiers(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    css = client.get("/static/app.css").text
+    # guard the small-phone and touch-target tiers against accidental removal
+    assert "@media (max-width: 430px)" in css
+    assert "@media (pointer: coarse)" in css
+
+
 def test_humanize_ts() -> None:
     from datetime import UTC, datetime, timedelta
 

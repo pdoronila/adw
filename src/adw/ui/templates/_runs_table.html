@@ -1,4 +1,5 @@
 {% if runs %}
+<div class="table-scroll">
 <table class="runs">
   <thead>
     <tr><th>run</th><th>workflow</th><th>task</th><th>status</th><th class="num">cost</th><th>updated</th></tr>
@@ -7,6 +8,7 @@
     {% for run in runs %}{% include "_run_row.html" %}{% endfor %}
   </tbody>
 </table>
+</div>
 {% elif run_count %}
 <div class="empty">No runs match — clear filters to see all {{ run_count }}.</div>
 {% else %}

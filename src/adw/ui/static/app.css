@@ -125,6 +125,7 @@ body {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .sidebar {
@@ -132,6 +133,7 @@ body {
   top: 0;
   align-self: start;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -307,6 +309,8 @@ td.snippet {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 /* ---------- forms ---------- */
 
@@ -593,7 +597,10 @@ details > *:not(summary) { margin-left: 0.75rem; margin-right: 0.75rem; }
   font-family: var(--font-mono);
   font-size: 0.8rem;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
+
+.markdown { overflow-x: auto; }
 
 .markdown pre {
   background: var(--code-bg);
@@ -615,6 +622,8 @@ dialog.modal {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-md);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
 }
 dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 
@@ -674,7 +683,7 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
     border-bottom: 1px solid var(--border);
     padding: 0.75rem 1rem;
   }
-  .nav { flex-direction: row; align-items: center; gap: 0.25rem; }
+  .nav { flex-direction: row; align-items: center; gap: 0.25rem; flex-wrap: wrap; row-gap: 0.35rem; }
   .nav-action { width: auto; }
   .nav-label, .sidebar-foot { display: none; }
   .content { padding: 1rem 1rem 3rem; }
@@ -684,5 +693,27 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
   .board, .archived-list { grid-template-columns: 1fr; }
   .filters { flex-wrap: wrap; }
   .filters input[type="search"] { min-width: 0; flex: 1; }
+  .filters select { flex: 1; min-width: 0; }
   .runs td.snippet, .runs th:nth-child(3) { display: none; }
+}
+
+@media (max-width: 430px) {
+  .content { padding: 0.75rem 0.75rem 3rem; }
+  .card { padding: 0.9rem 1rem; }
+  dialog.modal { padding: 1rem; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .runs th:nth-child(2), .runs td:nth-child(2),
+  .runs th:nth-child(6), .runs td:nth-child(6) { display: none; }
+  .runs td.mono { overflow-wrap: anywhere; }
+  .row label { flex: 1 1 100%; }
+  .row input, .row select, .row textarea { width: 100%; min-width: 0; }
+  .run-actions { flex-wrap: wrap; }
+  .toast { left: 1rem; right: 1rem; bottom: 1rem; }
+}
+
+@media (pointer: coarse) {
+  .nav-link { min-height: 44px; padding: 0.5rem 0.75rem; }
+  button { min-height: 44px; }
+  input, select, textarea { min-height: 44px; font-size: 1rem; }
+  details summary { min-height: 44px; }
 }

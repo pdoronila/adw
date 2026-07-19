@@ -53,6 +53,7 @@
 {% if gate_rounds %}
 <section class="card">
   <h3>Gate results</h3>
+  <div class="table-scroll">
   <table class="gates">
     <thead><tr><th>attempt</th><th>gate</th><th>ok</th><th class="num">exit</th></tr></thead>
     <tbody>
@@ -68,6 +69,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endif %}
 
