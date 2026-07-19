@@ -8,7 +8,7 @@ from adw.adapters.base import AgentAdapter, AgentInvocation
 from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.config import AdwConfig
 from adw.nodes.agent_node import AgentRunner
-from adw.state.run_state import RunState, create_run_dir, load_state, save_state
+from adw.state.run_state import RunState, create_run_dir, load_state, runs_root, save_state
 from adw.workflows.base import WorkflowContext
 from adw.workflows.feature import FeatureWorkflow
 
@@ -30,7 +30,7 @@ def marker(repo: Path):
 
 
 def build_ctx(repo: Path, mocks: dict[str, AgentAdapter]) -> WorkflowContext:
-    run_dir = repo / ".adw" / "runs" / "test-run"
+    run_dir = runs_root(repo) / "test-run"
     if (run_dir / "state.json").is_file():
         state = load_state(run_dir)
     else:

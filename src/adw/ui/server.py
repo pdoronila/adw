@@ -5,7 +5,9 @@ writes shell out through `runner` (detached CLI) or `tickets` directly.
 
 Multi-repo serving: `create_root_app` mounts one `create_app(...)` sub-app per
 registered repo at `/r/<slug>`, so each tenant's runs/tickets/SSE stay isolated
-by construction — every sub-app closes over its own `repo`.
+by construction — every sub-app closes over its own `repo`. The isolation also
+holds at the storage layer: each repo's runs resolve via `rs.runs_root` to its
+own slug-keyed directory.
 """
 
 from __future__ import annotations

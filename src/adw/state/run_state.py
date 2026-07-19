@@ -1,4 +1,8 @@
-"""Run state: one directory per run under <repo>/.adw/runs/<run_id>/.
+"""Run state: one directory per run under the repo's runs root.
+
+The runs root is two-tier (see runs_root): repos with an existing
+<repo>/.adw/runs/ keep using it (legacy tier); everything else lands in
+~/.adw/<repo-slug>/runs/ (user tier).
 
 state.json is rewritten atomically at every step boundary — it is the
 observability substrate and the hook for a future `adw resume`.
@@ -14,6 +18,8 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from adw import config, registry
 
 RunStatus = Literal[
     "running",
@@ -107,7 +113,13 @@ def new_run_id(task: str, now: datetime | None = None) -> str:
 
 
 def runs_root(repo: Path) -> Path:
-    return repo / ".adw" / "runs"
+    """Runs root for a repo: legacy <repo>/.adw/runs if it exists, else
+    ~/.adw/<repo-slug>/runs. ADW_DATA_TIER=project|user forces a tier."""
+    local = repo / ".adw" / "runs"
+    tier = os.environ.get("ADW_DATA_TIER", "")
+    if tier == "project" or (tier != "user" and local.is_dir()):
+        return local
+    return config.data_home() / registry.repo_slug(repo) / "runs"
 
 
 def create_run_dir(repo: Path, run_id: str) -> Path:

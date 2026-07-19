@@ -11,7 +11,7 @@ from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.cli import app
 from adw.config import AdwConfig
 from adw.nodes.agent_node import AgentRunner
-from adw.state.run_state import RunState, create_run_dir, load_state, save_state
+from adw.state.run_state import RunState, create_run_dir, load_state, runs_root, save_state
 from adw.workflows.base import WorkflowContext
 from adw.workflows.feature import FeatureWorkflow
 
@@ -36,7 +36,7 @@ def marker(repo: Path):
 def build_ctx(
     repo: Path, mocks: dict[str, AgentAdapter], *, decision=None, max_cost_usd: float = 0.5
 ) -> WorkflowContext:
-    run_dir = repo / ".adw" / "runs" / "test-run"
+    run_dir = runs_root(repo) / "test-run"
     if (run_dir / "state.json").is_file():
         state = load_state(run_dir)
     else:
@@ -68,7 +68,7 @@ def test_cost_exactly_at_limit_does_not_pause(target_repo: Path) -> None:
     }
     out = FeatureWorkflow().run(build_ctx(target_repo, mocks))
     assert out.status == "paused"
-    state = load_state(target_repo / ".adw" / "runs" / "test-run")
+    state = load_state(runs_root(target_repo) / "test-run")
     assert state.pending_gate == "plan"  # the plan gate, not the budget gate
 
 
@@ -79,7 +79,7 @@ def test_over_budget_pauses_with_budget_gate(target_repo: Path) -> None:
 
     out = FeatureWorkflow().run(build_ctx(target_repo, mocks))
     assert out.status == "paused"
-    state = load_state(target_repo / ".adw" / "runs" / "test-run")
+    state = load_state(runs_root(target_repo) / "test-run")
     assert state.status == "paused"
     assert state.pending_gate == "budget"
     assert state.step("scout").status == "ok"  # the paid step is complete, not re-run
@@ -96,7 +96,7 @@ def test_resume_approve_waives_budget_without_recharge(target_repo: Path) -> Non
     # budget) with no second budget pause; the run reaches the plan gate.
     out = FeatureWorkflow().run(build_ctx(target_repo, mocks, decision="approve"))
     assert out.status == "paused"
-    state = load_state(target_repo / ".adw" / "runs" / "test-run")
+    state = load_state(runs_root(target_repo) / "test-run")
     assert state.pending_gate == "plan"
     assert state.budget_waived is True
     assert len(scout.invocations) == 1  # not re-invoked, not re-charged
@@ -111,7 +111,7 @@ def test_resume_reject_stops_without_spending(target_repo: Path) -> None:
 
     out = FeatureWorkflow().run(build_ctx(target_repo, mocks, decision="reject"))
     assert out.status == "rejected"
-    state = load_state(target_repo / ".adw" / "runs" / "test-run")
+    state = load_state(runs_root(target_repo) / "test-run")
     assert state.status == "rejected"
     assert len(plan.invocations) == 0  # a reject never spends more money
 

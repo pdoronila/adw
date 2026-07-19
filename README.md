@@ -94,7 +94,7 @@ limits:
 
 When a run's total agent cost crosses `limits.max_cost_usd` it pauses with a `budget` gate — `adw resume <id> --approve` lifts the budget for the rest of that run, `--reject` stops it (the work branch is kept).
 
-Model strings are backend-native and passed through verbatim (`opus` for claude, `gpt-5-codex` for codex, `provider/model` for opencode). Global defaults live in `~/.config/adw/config.yaml`; the repo file wins.
+Model strings are backend-native and passed through verbatim (`opus` for claude, `gpt-5-codex` for codex, `provider/model` for opencode). Global defaults live in `~/.config/adw/config.yaml`; the repo file wins. Run data lives in `~/.adw/` (override with `ADW_DATA_HOME`).
 
 ### Agent experts
 
@@ -162,7 +162,7 @@ What `adw run feature` does:
 8. **Engineer gate 2** — diff summary + review → ship or reject
 9. **Ship** *(code)* — commit on the work branch with a conventional-commit title (`<type>: <subject>`, type inferred from the workflow — feature→feat, bug/hotfix/cve→fix, chore→chore — subject is the task's first line truncated to ~72 chars) and the full task text in the commit body, optional `gh pr create` (PR title matches the commit subject); with `ship.land: true`, the run then rebases the work branch onto the base branch, fast-forward-merges it, pushes (best-effort), and deletes the branch
 
-Every run leaves a full artifact trail in the target repo under `.adw/runs/<run-id>/`: `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`. Run `adw logs <run-id>` to pretty-print all of this in one place (`--tail N` controls how much of each agent's output is shown, default 500 chars).
+Every run leaves a full artifact trail at `~/.adw/<repo-slug>/runs/<run-id>/` by default; if the repo already has a `<repo>/.adw/runs/` directory (pre-existing installs, or `ADW_DATA_TIER=project`), artifacts stay there instead. The resolution order is: `ADW_DATA_TIER` override (`project` or `user`) → existing `<repo>/.adw/runs` → `~/.adw/<repo-slug>/runs`. The trail contains `state.json` (updated atomically at every step), `plan.md`, `review.md`, raw agent transcripts in `agent/`, full gate logs per attempt in `gates/`. The CLI prints the resolved directory (the `artifacts:` line); run `adw logs <run-id>` to pretty-print all of this in one place (`--tail N` controls how much of each agent's output is shown, default 500 chars). Note: moving or renaming a repo changes its slug, so a user-tier repo starts a fresh runs dir; old runs remain under the old slug dir.
 
 ## Ticket queue
 
@@ -270,7 +270,7 @@ pip install 'adw[ui]'
 adw ui                    # serves http://localhost:8770 and opens your browser
 ```
 
-The dashboard serves every repo you've launched it from: `adw ui` registers the current repo in `~/.config/adw/repos.json` and serves all registered repos, each under its own prefix `/r/<slug>/` (slug = the repo's directory name; collisions get `-2`, `-3`, …). The sidebar has a Repo switcher to jump between them, and `/` redirects to the repo you launched from. It has three pages per repo — a Dashboard at `/r/<slug>/` (health/status/cost/backlog tiles, a needs-attention list, and recent runs, auto-refreshing), Runs at `/r/<slug>/runs` (searchable, filterable by status, auto-refreshing), and Tickets at `/r/<slug>/tickets` (the board plus a drain-the-queue button) — and a live step timeline per run (streamed over SSE), with buttons to approve/reject paused runs and retry failed ones. Start-a-run and New-ticket are modals reachable from the sidebar on any page. Each ticket card has a Remove button, failed cards also have a Requeue button, and done cards have an Archive button (archived tickets appear in a collapsible section below the board, with Requeue/Remove). Unblocked queue cards have a Start button — or drag one onto the In progress column — to start that specific ticket immediately. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` start-run modal, `n` new-ticket modal, `g` `d` dashboard, `g` `r` runs, `g` `t` tickets. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth. Developers hacking on the dashboard can pass `--reload` to auto-restart the server whenever adw code changes.
+The dashboard serves every repo you've launched it from: `adw ui` registers the current repo in `~/.config/adw/repos.json` and serves all registered repos, each under its own prefix `/r/<slug>/` (slug = the repo's directory name; collisions get `-2`, `-3`, …). Each repo's run data is keyed by a stable slug (basename + path hash) under `~/.adw/`, so same-named repos never collide on disk; URL slugs are cosmetic and separate. The sidebar has a Repo switcher to jump between them, and `/` redirects to the repo you launched from. It has three pages per repo — a Dashboard at `/r/<slug>/` (health/status/cost/backlog tiles, a needs-attention list, and recent runs, auto-refreshing), Runs at `/r/<slug>/runs` (searchable, filterable by status, auto-refreshing), and Tickets at `/r/<slug>/tickets` (the board plus a drain-the-queue button) — and a live step timeline per run (streamed over SSE), with buttons to approve/reject paused runs and retry failed ones. Start-a-run and New-ticket are modals reachable from the sidebar on any page. Each ticket card has a Remove button, failed cards also have a Requeue button, and done cards have an Archive button (archived tickets appear in a collapsible section below the board, with Requeue/Remove). Unblocked queue cards have a Start button — or drag one onto the In progress column — to start that specific ticket immediately. Actions shell out to the same `adw` CLI, detached, and confirm with a toast. The UI follows your OS light/dark preference, works offline (htmx is vendored, no CDN), and has keyboard shortcuts: `/` search runs, `r` start-run modal, `n` new-ticket modal, `g` `d` dashboard, `g` `r` runs, `g` `t` tickets. Use `--port` / `--host` to change where it binds and `--no-open` to skip launching the browser — it binds to `127.0.0.1` (localhost only) and has no auth. Developers hacking on the dashboard can pass `--reload` to auto-restart the server whenever adw code changes.
 
 ## Isolation, parallelism & racing
 
@@ -323,9 +323,9 @@ adw builds features into its own repo — it's the fastest way to exercise the t
 
 ```bash
 adw run feature "add a --json flag to adw status" --async   # runs scout+plan, then pauses
-# review .adw/runs/<id>/plan.md, then:
+# review plan.md in the run's artifact dir (printed by the CLI / shown by `adw status <id>`), then:
 adw resume <id> --approve                                    # build+gates+review, pauses at final
-# review the diff (adw status <id>) + .adw/runs/<id>/review.md, then:
+# review the diff (adw status <id>) + review.md in the artifact dir, then:
 adw resume <id> --approve                                    # ships to branch adw/<id>
 ```
 

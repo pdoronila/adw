@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -48,13 +49,28 @@ def register_repo(repo: Path, path: Path | None = None) -> None:
     registry.write_text(json.dumps({"repos": [str(p) for p in repos]}, indent=2) + "\n")
 
 
+def _kebab(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "repo"
+
+
 def repo_slugs(repos: list[Path]) -> list[tuple[str, Path]]:
     """URL slug per repo from its basename; collisions deduped with -2, -3, ..."""
     seen: dict[str, int] = {}
     out: list[tuple[str, Path]] = []
     for repo in repos:
-        slug = re.sub(r"[^a-z0-9]+", "-", repo.name.lower()).strip("-") or "repo"
+        slug = _kebab(repo.name)
         count = seen.get(slug, 0) + 1
         seen[slug] = count
         out.append((slug if count == 1 else f"{slug}-{count}", repo))
     return out
+
+
+def repo_slug(repo: Path) -> str:
+    """Stable storage key for one repo: kebab basename + hash of its resolved path.
+
+    Unlike repo_slugs (URL slugs, deduped within a listed set), this never
+    changes when other repos are registered or removed.
+    """
+    resolved = repo.expanduser().resolve()
+    digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:8]
+    return f"{_kebab(resolved.name)}-{digest}"

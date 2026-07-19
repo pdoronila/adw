@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from adw.cli import app
+from adw.state.run_state import runs_root
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -64,7 +65,7 @@ def test_full_run_ships(e2e_repo: Path) -> None:
     assert ".adw" not in committed
 
     # artifacts: plan, review, transcripts, gate logs, final state
-    run_dirs = list((e2e_repo / ".adw" / "runs").iterdir())
+    run_dirs = list(runs_root(e2e_repo).iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
     assert (run_dir / "plan.md").is_file()
@@ -126,7 +127,7 @@ def test_dry_run_touches_nothing(e2e_repo: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert "plan" in result.output and "marker" in result.output
-    assert not (e2e_repo / ".adw" / "runs").exists()
+    assert not runs_root(e2e_repo).exists()
 
 
 def test_dry_run_model_override(e2e_repo: Path) -> None:
@@ -137,7 +138,7 @@ def test_dry_run_model_override(e2e_repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "model=opus" in result.output
     assert "model: opus" in result.output  # reflected in the per-role listing
-    assert not (e2e_repo / ".adw" / "runs").exists()
+    assert not runs_root(e2e_repo).exists()
 
 
 def test_dry_run_backend_override(e2e_repo: Path) -> None:
@@ -148,7 +149,7 @@ def test_dry_run_backend_override(e2e_repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "backend=codex" in result.output
     assert "-> codex" in result.output
-    assert not (e2e_repo / ".adw" / "runs").exists()
+    assert not runs_root(e2e_repo).exists()
 
 
 def test_dry_run_backend_override_rejects_unknown(e2e_repo: Path) -> None:
@@ -177,7 +178,7 @@ def test_dry_run_isolation_override(e2e_repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "isolation=worktree" in result.output
     assert "isolation: worktree" in result.output
-    assert not (e2e_repo / ".adw" / "runs").exists()
+    assert not runs_root(e2e_repo).exists()
 
 
 def test_dry_run_isolation_override_rejects_unknown(e2e_repo: Path) -> None:

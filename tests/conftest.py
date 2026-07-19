@@ -39,3 +39,10 @@ def base_config() -> AdwConfig:
 def _isolate_global_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real ~/.config/adw/config.yaml out of tests."""
     monkeypatch.setenv("ADW_GLOBAL_CONFIG", str(tmp_path / "no-global.yaml"))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep the developer's real ~/.adw out of tests."""
+    monkeypatch.setenv("ADW_DATA_HOME", str(tmp_path / "adw-data-home"))
+    monkeypatch.delenv("ADW_DATA_TIER", raising=False)

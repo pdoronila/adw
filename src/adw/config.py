@@ -2,6 +2,8 @@
 
 Merge precedence (lowest to highest): built-in defaults < ~/.config/adw/config.yaml
 < <repo>/adw.yaml < CLI overrides.
+
+Run state lives under ~/.adw/ by default (see run_state.runs_root).
 """
 
 from __future__ import annotations
@@ -15,6 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_CONFIG_NAME = "adw.yaml"
 GLOBAL_CONFIG_PATH = Path("~/.config/adw/config.yaml").expanduser()
+DATA_HOME_PATH = Path("~/.adw").expanduser()
+
+
+def data_home() -> Path:
+    """User-level adw data root, overridable via ADW_DATA_HOME (tests, odd setups)."""
+    override = os.environ.get("ADW_DATA_HOME")
+    return Path(override).expanduser() if override else DATA_HOME_PATH
 
 
 class StrictModel(BaseModel):

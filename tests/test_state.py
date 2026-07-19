@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from adw.state.run_state import (
     RunState,
@@ -10,6 +13,7 @@ from adw.state.run_state import (
     list_runs,
     load_state,
     new_run_id,
+    runs_root,
     save_state,
     slugify,
 )
@@ -100,6 +104,56 @@ def test_cost_rollup_empty() -> None:
 def test_list_runs_skips_junk(tmp_path: Path) -> None:
     run_dir = create_run_dir(tmp_path, "r3")
     save_state(RunState(run_id="r3", workflow="feature", task="t", repo=""), run_dir)
-    (tmp_path / ".adw" / "runs" / "junk").mkdir()
+    (runs_root(tmp_path) / "junk").mkdir()
     runs = list_runs(tmp_path)
     assert [r.run_id for r in runs] == ["r3"]
+
+
+def test_runs_root_defaults_to_user_tier(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    root = runs_root(repo)
+    data_home = Path(os.environ["ADW_DATA_HOME"])
+    assert root.is_relative_to(data_home)
+    assert root.name == "runs"
+    run_dir = create_run_dir(repo, "r1")
+    save_state(RunState(run_id="r1", workflow="feature", task="t", repo=str(repo)), run_dir)
+    assert [r.run_id for r in list_runs(repo)] == ["r1"]
+    assert not (repo / ".adw").exists()
+
+
+def test_runs_root_prefers_existing_project_tier(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".adw" / "runs").mkdir(parents=True)
+    assert runs_root(repo) == repo / ".adw" / "runs"
+    run_dir = create_run_dir(repo, "r1")
+    assert run_dir == repo / ".adw" / "runs" / "r1"
+    save_state(RunState(run_id="r1", workflow="feature", task="t", repo=str(repo)), run_dir)
+    assert [r.run_id for r in list_runs(repo)] == ["r1"]
+
+
+def test_runs_root_tier_forced_by_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy_repo = tmp_path / "legacy"
+    (legacy_repo / ".adw" / "runs").mkdir(parents=True)
+    monkeypatch.setenv("ADW_DATA_TIER", "user")
+    data_home = Path(os.environ["ADW_DATA_HOME"])
+    assert runs_root(legacy_repo).is_relative_to(data_home)
+
+    fresh_repo = tmp_path / "fresh"
+    fresh_repo.mkdir()
+    monkeypatch.setenv("ADW_DATA_TIER", "project")
+    assert runs_root(fresh_repo) == fresh_repo / ".adw" / "runs"
+
+
+def test_same_basename_repos_do_not_collide(tmp_path: Path) -> None:
+    repo_x = tmp_path / "x" / "app"
+    repo_y = tmp_path / "y" / "app"
+    repo_x.mkdir(parents=True)
+    repo_y.mkdir(parents=True)
+    for repo, run_id in ((repo_x, "rx"), (repo_y, "ry")):
+        run_dir = create_run_dir(repo, run_id)
+        save_state(RunState(run_id=run_id, workflow="feature", task="t", repo=str(repo)), run_dir)
+    assert [r.run_id for r in list_runs(repo_x)] == ["rx"]
+    assert [r.run_id for r in list_runs(repo_y)] == ["ry"]

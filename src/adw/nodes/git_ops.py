@@ -29,9 +29,10 @@ def is_git_repo(repo: Path) -> bool:
 def ensure_adw_ignored(repo: Path) -> None:
     """Register .adw/ in the repo-local .git/info/exclude.
 
-    adw's own artifacts (.adw/runs, .adw/tickets) live inside the target repo;
-    this keeps them out of `status`/`diff`/`add` without touching the user's
-    tracked .gitignore. Idempotent; no-op outside a git repo.
+    Tickets, worktrees, and legacy runs still live inside the target repo under
+    .adw/ (new-tier runs live outside the tree, under ~/.adw/); this keeps them
+    out of `status`/`diff`/`add` without touching the user's tracked
+    .gitignore. Idempotent; no-op outside a git repo.
     """
     proc = _git(repo, "rev-parse", "--git-dir", check=False)
     if proc.returncode != 0:

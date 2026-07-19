@@ -418,8 +418,8 @@
       <div class="arow">
         <div class="lane-tag" style="--lc:var(--pass)">out</div>
         <div class="acard output">
-          <h3>State &amp; artifacts — <span class="path">.adw/runs/&lt;id&gt;/</span></h3>
-          <p><code>state.json</code> (rewritten atomically at every step, and the hook for resume), <code>plan.md</code>, <code>review.md</code>, raw agent transcripts, and full gate logs per attempt.</p>
+          <h3>State &amp; artifacts — <span class="path">~/.adw/&lt;repo-slug&gt;/runs/&lt;id&gt;/</span></h3>
+          <p><code>state.json</code> (rewritten atomically at every step, and the hook for resume), <code>plan.md</code>, <code>review.md</code>, raw agent transcripts, and full gate logs per attempt. Repos with a pre-existing <code>.adw/runs/</code> keep using it in place.</p>
         </div>
       </div>
     </div>

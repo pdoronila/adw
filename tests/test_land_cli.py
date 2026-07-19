@@ -9,7 +9,14 @@ from typer.testing import CliRunner
 
 from adw.cli import app
 from adw.nodes import git_ops
-from adw.state.run_state import RunState, RunStatus, create_run_dir, load_state, save_state
+from adw.state.run_state import (
+    RunState,
+    RunStatus,
+    create_run_dir,
+    load_state,
+    runs_root,
+    save_state,
+)
 
 runner = CliRunner()
 
@@ -61,7 +68,7 @@ def test_land_cli_success(tmp_path: Path, target_repo: Path) -> None:
     assert "landed on main" in result.output
     assert "work change" in _out(target_repo, "log", "main", "--oneline")
     assert not git_ops.branch_exists(target_repo, "work")
-    state = load_state(tmp_path / ".adw" / "runs" / run_id)
+    state = load_state(runs_root(tmp_path) / run_id)
     assert "landed on main" in state.outcome_detail
 
 
