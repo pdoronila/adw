@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from adw.adapters import get_adapter
-from adw.adapters.base import AgentInvocation
+from adw.adapters.base import AgentInvocation, TokenUsage
 from adw.adapters.claude_code import ClaudeCodeAdapter
 from adw.adapters.codex import CodexAdapter
 from adw.adapters.opencode import OpencodeAdapter
@@ -62,6 +62,70 @@ class TestClaudeParse:
         assert result.output == "All done."
         assert result.session_id == "abc-123"
         assert result.cost_usd == pytest.approx(0.0421)
+        assert result.tokens is None  # no usage reported -> None, never zeros
+        assert result.model_tokens == {}
+
+    def test_usage_and_model_usage(self) -> None:
+        payload = {
+            "is_error": False,
+            "result": "done",
+            "session_id": "abc",
+            "usage": {
+                "input_tokens": 1200,
+                "output_tokens": 300,
+                "cache_read_input_tokens": 50_000,
+                "cache_creation_input_tokens": 900,
+            },
+            "modelUsage": {
+                "claude-sonnet-4-5": {"input_tokens": 1000, "output_tokens": 250},
+                "claude-haiku-4-5": {"input_tokens": 200, "output_tokens": 50},
+            },
+        }
+        result = self.adapter.parse_output(json.dumps(payload), "", 0)
+        assert result.tokens == TokenUsage(
+            input_tokens=1200,
+            output_tokens=300,
+            cache_read_tokens=50_000,
+            cache_write_tokens=900,
+        )
+        assert result.model_tokens == {
+            "claude-sonnet-4-5": TokenUsage(input_tokens=1000, output_tokens=250),
+            "claude-haiku-4-5": TokenUsage(input_tokens=200, output_tokens=50),
+        }
+
+    def test_camel_case_model_usage(self) -> None:
+        payload = {
+            "is_error": False,
+            "result": "done",
+            "session_id": "abc",
+            "modelUsage": {
+                "claude-sonnet-4-5": {
+                    "inputTokens": 10,
+                    "outputTokens": 5,
+                    "cacheReadInputTokens": 100,
+                    "cacheCreationInputTokens": 20,
+                }
+            },
+        }
+        result = self.adapter.parse_output(json.dumps(payload), "", 0)
+        assert result.model_tokens == {
+            "claude-sonnet-4-5": TokenUsage(
+                input_tokens=10, output_tokens=5, cache_read_tokens=100, cache_write_tokens=20
+            )
+        }
+
+    def test_malformed_usage_never_raises(self) -> None:
+        payload = {
+            "is_error": False,
+            "result": "done",
+            "session_id": "abc",
+            "usage": "not a dict",
+            "modelUsage": {"claude-sonnet-4-5": None, "claude-haiku-4-5": {"input_tokens": -5}},
+        }
+        result = self.adapter.parse_output(json.dumps(payload), "", 0)
+        assert result.ok
+        assert result.tokens is None
+        assert result.model_tokens == {}  # malformed entries skipped, never raised
 
     def test_is_error(self) -> None:
         payload = {"is_error": True, "result": "boom", "session_id": "abc"}
@@ -102,13 +166,31 @@ class TestCodexParse:
             {"type": "thread.started", "thread_id": "th_42"},
             {"type": "turn.started"},
             {"type": "item.completed", "item": {"type": "agent_message", "text": "Did it."}},
-            {"type": "turn.completed", "usage": {"input_tokens": 10}},
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 10, "cached_input_tokens": 5, "output_tokens": 3},
+            },
         ]
         stdout = "\n".join(json.dumps(line) for line in lines)
         result = self.adapter.parse_output(stdout, "", 0)
         assert result.ok
         assert result.session_id == "th_42"
         assert result.output == "Did it."
+        assert result.tokens == TokenUsage(input_tokens=10, output_tokens=3, cache_read_tokens=5)
+        assert result.model_tokens == {}  # codex has no per-model report
+
+    def test_usage_missing_or_malformed(self) -> None:
+        for usage in (None, "junk", {}):
+            lines: list[dict[str, object]] = [
+                {"type": "thread.started", "thread_id": "th_45"},
+                {"type": "turn.completed"},
+            ]
+            if usage is not None:
+                lines[-1]["usage"] = usage
+            stdout = "\n".join(json.dumps(line) for line in lines)
+            result = self.adapter.parse_output(stdout, "", 0)
+            assert result.ok
+            assert result.tokens is None
 
     def test_turn_failed(self) -> None:
         lines = [
@@ -184,6 +266,27 @@ class TestOpencodeParse:
         assert result.ok
         assert result.output == "HELLO"
         assert result.session_id == "ses_real"
+
+    def test_nested_tokens_node(self) -> None:
+        # observed shape: assistant info carries tokens {input, output, cache: {read, write}}
+        doc = {
+            "info": {
+                "sessionID": "ses_t",
+                "tokens": {"input": 500, "output": 40, "cache": {"read": 900, "write": 30}},
+            },
+            "parts": [{"type": "text", "text": "hi"}],
+        }
+        result = self.adapter.parse_output(json.dumps(doc), "", 0)
+        assert result.ok
+        assert result.tokens == TokenUsage(
+            input_tokens=500, output_tokens=40, cache_read_tokens=900, cache_write_tokens=30
+        )
+
+    def test_unrecognized_usage_degrades_to_none(self) -> None:
+        doc = {"info": {"sessionID": "ses_u", "usage": {"weird": 1}}, "type": "text", "text": "hi"}
+        result = self.adapter.parse_output(json.dumps(doc), "", 0)
+        assert result.ok
+        assert result.tokens is None
 
     def test_error_event_despite_exit_zero(self) -> None:
         # opencode exits 0 even when the model call fails

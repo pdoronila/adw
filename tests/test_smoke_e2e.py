@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from adw.cli import app
-from adw.state.run_state import runs_root
+from adw.state.run_state import load_state, runs_root
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -80,6 +80,12 @@ def test_full_run_ships(e2e_repo: Path) -> None:
     ]
     assert (run_dir / "gates" / "attempt-1-marker.log").is_file()
     assert '"status": "shipped"' in (run_dir / "state.json").read_text()
+
+    # token usage parsed from every fake-agent payload (5 invocations x 1200/300)
+    state = load_state(run_dir)
+    assert state.total_tokens.input_tokens == 5 * 1200
+    assert state.total_tokens.output_tokens == 5 * 300
+    assert state.tokens_by_model["claude-sonnet-4-5"].total == 5 * 1500
 
     # status command sees the run
     status = runner.invoke(app, ["status", "--repo", str(e2e_repo)])

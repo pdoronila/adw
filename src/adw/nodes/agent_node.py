@@ -80,6 +80,8 @@ class AgentRunner:
             env=self.env,
         )
         result = adapter.invoke(inv)
+        # Only the runner knows the routed model; aggregation attributes usage to it.
+        result.model = inv.model
         self._persist(step_name, role, role_agent, inv, result, route_reason)
         return result
 

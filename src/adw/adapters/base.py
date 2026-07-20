@@ -5,12 +5,37 @@ from __future__ import annotations
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+from pydantic import BaseModel
+
 from adw.config import BackendOpts
 from adw.exec_env import ExecutionEnvironment, LocalEnv
+
+
+class TokenUsage(BaseModel):
+    """Provider-reported token counts for one agent invocation.
+
+    The headline total is input + output; cache traffic is tracked separately
+    so multi-million cache-read counts never distort it.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def add(self, other: TokenUsage) -> None:
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        self.cache_read_tokens += other.cache_read_tokens
+        self.cache_write_tokens += other.cache_write_tokens
 
 
 @dataclass
@@ -35,6 +60,12 @@ class AgentResult:
     exit_code: int
     duration_s: float
     cost_usd: float | None = None
+    # This invocation's usage; None when the backend didn't report it.
+    tokens: TokenUsage | None = None
+    # Filled only when the backend reports per-model usage (claude's modelUsage).
+    model_tokens: dict[str, TokenUsage] = field(default_factory=dict)
+    # The effective routed model, stamped by AgentRunner.run (adapters leave it None).
+    model: str | None = None
     raw: Any = None
     stderr_tail: str = ""
     error: str = ""
@@ -47,6 +78,8 @@ class AgentResult:
             "exit_code": self.exit_code,
             "duration_s": round(self.duration_s, 2),
             "cost_usd": self.cost_usd,
+            "tokens": self.tokens.model_dump() if self.tokens else None,
+            "model_tokens": {k: v.model_dump() for k, v in self.model_tokens.items()},
             "error": self.error,
             "stderr_tail": self.stderr_tail,
             "raw": self.raw,

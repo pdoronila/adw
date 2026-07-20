@@ -7,9 +7,47 @@ Resume requires the same cwd used at session start.
 from __future__ import annotations
 
 import json
+from typing import Any
 
-from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
+from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult, TokenUsage
 from adw.config import ClaudeCodeOpts
+
+# Claude usage keys -> TokenUsage fields. `usage` uses snake_case; `modelUsage`
+# entries have appeared camelCased, so both spellings are accepted.
+_USAGE_KEYS = {
+    "input_tokens": ("input_tokens", "inputTokens"),
+    "output_tokens": ("output_tokens", "outputTokens"),
+    "cache_read_tokens": ("cache_read_input_tokens", "cacheReadInputTokens"),
+    "cache_write_tokens": ("cache_creation_input_tokens", "cacheCreationInputTokens"),
+}
+
+
+def _usage_from(data: Any) -> TokenUsage | None:
+    """Defensively map a claude usage dict to TokenUsage; None for anything else."""
+    if not isinstance(data, dict):
+        return None
+    counts: dict[str, int] = {}
+    for field, keys in _USAGE_KEYS.items():
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, int | float) and value >= 0:
+                counts[field] = int(value)
+                break
+    if not counts:
+        return None
+    return TokenUsage(**counts)
+
+
+def _model_tokens_from(data: Any) -> dict[str, TokenUsage]:
+    """Per-model usage from a `modelUsage` dict; malformed entries are skipped."""
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, TokenUsage] = {}
+    for model_id, entry in data.items():
+        usage = _usage_from(entry)
+        if isinstance(model_id, str) and usage is not None:
+            out[model_id] = usage
+    return out
 
 
 class ClaudeCodeAdapter(AgentAdapter):
@@ -60,6 +98,8 @@ class ClaudeCodeAdapter(AgentAdapter):
             exit_code=exit_code,
             duration_s=0.0,
             cost_usd=payload.get("total_cost_usd"),
+            tokens=_usage_from(payload.get("usage")),
+            model_tokens=_model_tokens_from(payload.get("modelUsage")),
             raw=payload,
             stderr_tail=stderr[-2000:],
             error="claude reported is_error" if is_error else "",

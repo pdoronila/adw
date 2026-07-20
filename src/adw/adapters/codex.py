@@ -10,8 +10,26 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
+from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult, TokenUsage
 from adw.config import CodexOpts
+
+
+def _usage_from(data: Any) -> TokenUsage | None:
+    """Map a `turn.completed` usage dict to TokenUsage; None for anything else."""
+    if not isinstance(data, dict):
+        return None
+    counts: dict[str, int] = {}
+    for field, key in (
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("cache_read_tokens", "cached_input_tokens"),
+    ):
+        value = data.get(key)
+        if isinstance(value, int | float) and value >= 0:
+            counts[field] = int(value)
+    if not counts:
+        return None
+    return TokenUsage(**counts)
 
 
 class CodexAdapter(AgentAdapter):
@@ -52,12 +70,16 @@ class CodexAdapter(AgentAdapter):
         messages: list[str] = []
         completed = False
         failed_reason = ""
+        tokens: TokenUsage | None = None
         for event in events:
             etype = str(event.get("type", ""))
             if etype == "thread.started":
                 session_id = event.get("thread_id") or session_id
             elif etype == "turn.completed":
                 completed = True
+                # Final-event usage only; incremental token_count events are
+                # cumulative and must never be summed.
+                tokens = _usage_from(event.get("usage")) or tokens
             elif etype in ("turn.failed", "error"):
                 failed_reason = json.dumps(event.get("error", event))[:500]
             elif etype.startswith("item."):
@@ -79,6 +101,7 @@ class CodexAdapter(AgentAdapter):
             session_id=session_id,
             exit_code=exit_code,
             duration_s=0.0,
+            tokens=tokens,
             raw=events or stdout,
             stderr_tail=stderr[-2000:],
             error=error,

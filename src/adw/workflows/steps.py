@@ -301,7 +301,7 @@ def agent_doc(
     result = ctx.agents.run(
         role, prompt_text, cwd=ctx.repo_dir, step_name=step_name, read_only=read_only
     )
-    state.add_cost(result.cost_usd)
+    state.add_usage(step_name, result)
     if not result.ok or not result.output.strip():
         state.end_step(step_name, "failed", result.error)
         return fail(ctx, step_name, f"{role} agent failed: {result.error}")
@@ -345,7 +345,7 @@ def opinion_fanout(ctx: WorkflowContext, *, roles: list[str], task: str) -> RunO
             results = {role: future.result() for role, future in futures.items()}
     for role in pending:
         result = results[role]
-        state.add_cost(result.cost_usd)
+        state.add_usage(f"opinion-{role}", result)
         if result.ok and result.output.strip():
             (ctx.run_dir / f"opinion-{role}.md").write_text(result.output)
             state.end_step(f"opinion-{role}", "ok", _session_note(result.session_id))
@@ -404,7 +404,7 @@ def validate_gate(ctx: WorkflowContext, *, fused_plan: str) -> RunOutcome | None
         step_name="validate-gate",
         read_only=True,
     )
-    state.add_cost(result.cost_usd)
+    state.add_usage("validate-gate", result)
     script = _extract_script(result.output) if result.ok else ""
     if not script:
         state.end_step("validate-gate", "failed", result.error)
@@ -560,7 +560,7 @@ def build(
         return None  # resuming: build already ran (session id is persisted)
     state.start_step(step_name)
     result = ctx.agents.run(role, prompt_text, cwd=ctx.repo_dir, step_name=step_name)
-    state.add_cost(result.cost_usd)
+    state.add_usage(step_name, result)
     state.build_session_id = result.session_id
     if not result.ok:
         state.end_step(step_name, "failed", result.error)
@@ -585,7 +585,7 @@ def resume_turn(
     result = ctx.agents.run(
         role, prompt_text, cwd=ctx.repo_dir, step_name=step_name, session_id=state.build_session_id
     )
-    state.add_cost(result.cost_usd)
+    state.add_usage(step_name, result)
     if not result.ok:
         state.end_step(step_name, "failed", result.error)
         return fail(ctx, step_name, f"{role} agent failed: {result.error}")
@@ -712,7 +712,7 @@ def review(
         step_name=step_name,
         read_only=True,
     )
-    state.add_cost(result.cost_usd)
+    state.add_usage(step_name, result)
     if result.ok and result.output.strip():
         (ctx.run_dir / "review.md").write_text(result.output)
         state.end_step(step_name, "ok")

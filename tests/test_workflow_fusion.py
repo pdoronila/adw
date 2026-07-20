@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from adw.adapters.base import AgentAdapter, AgentInvocation
+from adw.adapters.base import AgentAdapter, AgentInvocation, TokenUsage
 from adw.adapters.mock import MockAdapter, ScriptedTurn
 from adw.config import AdwConfig
 from adw.nodes.agent_node import AgentRunner
@@ -279,6 +279,89 @@ def test_validator_prose_is_stripped_to_the_script(target_repo: Path) -> None:
 
     assert outcome.status == "shipped"
     assert (ctx.run_dir / "validate.sh").read_text() == VALIDATOR_SCRIPT + "\n"
+
+
+def test_token_usage_aggregates_across_run(target_repo: Path) -> None:
+    """Every invocation's tokens land in state exactly once, fan-out included."""
+    mocks: dict[str, AgentAdapter] = {
+        "opinion_a": MockAdapter(
+            [
+                ScriptedTurn(
+                    output="opinion A: do X",
+                    session_id="oa",
+                    tokens=TokenUsage(input_tokens=100, output_tokens=10),
+                )
+            ]
+        ),
+        "opinion_b": MockAdapter(
+            [
+                ScriptedTurn(
+                    output="opinion B: do Y",
+                    session_id="ob",
+                    tokens=TokenUsage(input_tokens=200, output_tokens=20),
+                    model_tokens={
+                        "claude-opus-4-8": TokenUsage(input_tokens=200, output_tokens=20)
+                    },
+                )
+            ]
+        ),
+        "fusion": MockAdapter(
+            [
+                ScriptedTurn(
+                    output="## Consensus\nadd marker.txt",
+                    tokens=TokenUsage(input_tokens=50, output_tokens=5),
+                )
+            ]
+        ),
+        "validator": MockAdapter(
+            [
+                ScriptedTurn(
+                    output=VALIDATOR_OUTPUT,
+                    tokens=TokenUsage(input_tokens=40, output_tokens=4),
+                )
+            ]
+        ),
+        "build": MockAdapter(
+            [
+                ScriptedTurn(
+                    output="built",
+                    session_id="b1",
+                    on_invoke=touch_marker(target_repo),
+                    tokens=TokenUsage(
+                        input_tokens=300, output_tokens=30, cache_read_tokens=1000
+                    ),
+                )
+            ]
+        ),
+        "review": MockAdapter(
+            [
+                ScriptedTurn(
+                    output="VERDICT: ship",
+                    tokens=TokenUsage(input_tokens=60, output_tokens=6),
+                )
+            ]
+        ),
+    }
+    ctx = make_ctx(target_repo, make_config(), mocks)
+    outcome = FusionWorkflow().run(ctx)
+
+    assert outcome.status == "shipped"
+    state = load_state(ctx.run_dir)
+    # run totals: every invocation counted exactly once, no fan-out loss or double count
+    assert state.total_tokens == TokenUsage(
+        input_tokens=750, output_tokens=75, cache_read_tokens=1000
+    )
+    # per-step usage
+    assert state.step("opinion-opinion_a").tokens == TokenUsage(input_tokens=100, output_tokens=10)
+    assert state.step("build").tokens == TokenUsage(
+        input_tokens=300, output_tokens=30, cache_read_tokens=1000
+    )
+    # per-model: opinion_b's backend-reported breakdown wins; the rest (unrouted,
+    # model None) fall back to the runner-stamped model
+    assert state.tokens_by_model["claude-opus-4-8"].total == 220
+    assert state.tokens_by_model["unknown"].total == 605
+    by_model_total = sum(usage.total for usage in state.tokens_by_model.values())
+    assert by_model_total == state.total_tokens.total
 
 
 def test_opinion_fanout_parallel_transcripts(target_repo: Path) -> None:

@@ -108,6 +108,7 @@ def create_app(
     templates.env.globals["pill_class"] = views.pill_class
     templates.env.globals["humanize_ts"] = views.humanize_ts
     templates.env.globals["clock_ts"] = views.clock_ts
+    templates.env.globals["format_tokens"] = views.format_tokens
     templates.env.globals["asset_v"] = _asset_version(_HERE / "static")
     # An env global (not a context processor) so the SSE path's bare .render()
     # calls resolve it too.

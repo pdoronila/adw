@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
+from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult, TokenUsage
 from adw.config import OpencodeOpts
 
 _SESSION_KEYS = ("sessionID", "session_id", "sessionId")
+_USAGE_KEYS = ("tokens", "usage")
 
 
 class OpencodeAdapter(AgentAdapter):
@@ -59,6 +60,7 @@ class OpencodeAdapter(AgentAdapter):
             session_id=session_id,
             exit_code=exit_code,
             duration_s=0.0,
+            tokens=_find_usage(events),
             raw=events or stdout,
             stderr_tail=stderr[-2000:],
             error=error,
@@ -104,6 +106,62 @@ def _find_session_id(node: Any) -> str | None:
             if found:
                 return found
     return None
+
+
+def _find_usage(node: Any) -> TokenUsage | None:
+    """Depth-first search for a `tokens`/`usage` dict anywhere in the event payloads.
+
+    Best-effort: the schema varies by opencode version/provider, so anything
+    unrecognized degrades to None (rendered as a dash, never a fabricated count).
+    """
+    if isinstance(node, dict):
+        for key in _USAGE_KEYS:
+            usage = _usage_from(node.get(key))
+            if usage is not None:
+                return usage
+        for value in node.values():
+            found = _find_usage(value)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_usage(item)
+            if found is not None:
+                return found
+    return None
+
+
+def _count(data: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, int | float) and value >= 0:
+            return int(value)
+    return None
+
+
+def _usage_from(data: Any) -> TokenUsage | None:
+    """Map known opencode usage-key aliases to TokenUsage; None when unrecognized."""
+    if not isinstance(data, dict):
+        return None
+    counts: dict[str, int] = {}
+    for field, keys in (
+        ("input_tokens", ("input", "input_tokens")),
+        ("output_tokens", ("output", "output_tokens")),
+        ("cache_read_tokens", ("cache_read",)),
+        ("cache_write_tokens", ("cache_write",)),
+    ):
+        value = _count(data, *keys)
+        if value is not None:
+            counts[field] = value
+    cache = data.get("cache")
+    if isinstance(cache, dict):
+        for field, key in (("cache_read_tokens", "read"), ("cache_write_tokens", "write")):
+            value = _count(cache, key)
+            if value is not None:
+                counts[field] = value
+    if "input_tokens" not in counts and "output_tokens" not in counts:
+        return None
+    return TokenUsage(**counts)
 
 
 def _collect_text(node: Any, out: list[str]) -> None:

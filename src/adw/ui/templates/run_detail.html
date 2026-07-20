@@ -96,6 +96,7 @@
         <span class="chip">role={{ t.role }}</span>
         <span class="chip">model={{ t.model }}</span>
         <span class="chip">cost=${{ "%.2f"|format(t.cost_usd) }}</span>
+        {% if t.tokens %}<span class="chip">tokens={{ format_tokens(t.tokens.input_tokens + t.tokens.output_tokens) }}</span>{% endif %}
       </span>
     </summary>
     <pre class="transcript">{{ t.output }}</pre>

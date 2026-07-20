@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult
+from adw.adapters.base import AgentAdapter, AgentInvocation, AgentResult, TokenUsage
 from adw.config import BackendOpts
 
 
@@ -15,6 +15,8 @@ class ScriptedTurn:
     ok: bool = True
     session_id: str = "mock-session-1"
     cost_usd: float | None = None
+    tokens: TokenUsage | None = None
+    model_tokens: dict[str, TokenUsage] | None = None
     on_invoke: Callable[[AgentInvocation], None] | None = None
 
 
@@ -42,6 +44,8 @@ class MockAdapter(AgentAdapter):
             output=turn.output,
             session_id=turn.session_id,
             cost_usd=turn.cost_usd,
+            tokens=turn.tokens,
+            model_tokens=dict(turn.model_tokens or {}),
             exit_code=0 if turn.ok else 1,
             duration_s=0.0,
             error="" if turn.ok else "mock failure",

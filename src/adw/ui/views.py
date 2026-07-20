@@ -109,6 +109,15 @@ def clock_ts(dt: datetime) -> str:
     return dt.astimezone(UTC).strftime("%H:%M:%S")
 
 
+def format_tokens(n: int) -> str:
+    """Jinja helper: compact token count — 950 -> '950', 12400 -> '12.4k', 1234567 -> '1.2M'."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
 def list_runs(repo: Path) -> list[rs.RunState]:
     """All runs, newest first (for the dashboard table)."""
     return list(reversed(rs.list_runs(repo)))
@@ -175,6 +184,7 @@ def agent_transcripts(run_dir: Path, tail: int = 4000) -> list[dict[str, object]
                 "model": artifact.get("model"),
                 "backend": artifact.get("backend"),
                 "cost_usd": artifact.get("cost_usd") or 0.0,
+                "tokens": artifact.get("tokens"),
                 "output": output,
                 "ok": artifact.get("ok"),
             }

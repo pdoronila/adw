@@ -5,8 +5,16 @@
   <dl class="meta-grid">
     <div><dt>workflow</dt><dd>{{ state.workflow }}</dd></div>
     <div><dt>cost</dt><dd class="mono">${{ "%.2f"|format(state.total_cost_usd) }}</dd></div>
+    {% if state.total_tokens.total %}
+    <div><dt>tokens</dt><dd class="mono" title="cache read {{ format_tokens(state.total_tokens.cache_read_tokens) }} / write {{ format_tokens(state.total_tokens.cache_write_tokens) }}">{{ format_tokens(state.total_tokens.total) }}</dd></div>
+    {% endif %}
     <div><dt>created</dt><dd title="{{ state.created_at }}">{{ humanize_ts(state.created_at) }}</dd></div>
     <div><dt>updated</dt><dd title="{{ state.updated_at }}">{{ humanize_ts(state.updated_at) }}</dd></div>
+    {% if state.tokens_by_model|length > 1 %}
+    <div class="meta-wide"><dt>tokens by model</dt><dd><span class="chips">
+      {% for model, usage in state.tokens_by_model.items() %}<span class="chip mono">{{ model }} — {{ format_tokens(usage.total) }}</span>{% endfor %}
+    </span></dd></div>
+    {% endif %}
     {% if state.outcome_detail %}
     <div class="meta-wide"><dt>outcome</dt><dd>{{ state.outcome_detail }}</dd></div>
     {% endif %}

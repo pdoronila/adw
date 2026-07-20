@@ -7,8 +7,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from adw.adapters.base import AgentResult, TokenUsage
 from adw.cli import app
-from adw.state.run_state import RunState, create_run_dir, save_state
+from adw.state.run_state import RunState, create_run_dir, load_state, save_state
 
 runner = CliRunner()
 
@@ -24,7 +25,7 @@ def _seed_run(repo: Path, run_id: str) -> Path:
             "results": [{"name": "lint", "ok": True, "exit_code": 0}],
         }
     )
-    state.add_cost(1.23)
+    state.total_cost_usd = 1.23  # legacy run: cost only, no token fields
     save_state(state, run_dir)
 
     agent_dir = run_dir / "agent"
@@ -65,6 +66,54 @@ def test_logs_prints_run_detail(tmp_path: Path) -> None:
     assert "routing: 1 step(s) usage-capped, 0 step(s) escalated" in result.output
     # the artifact without a route_reason still renders, without a route note
     assert "01-plan  role=plan model=sonnet cost=$1.23\n" in result.output
+    # legacy artifacts carry no tokens: no per-line note, no totals footer
+    assert "tokens=" not in result.output
+    assert "total tokens" not in result.output
+
+
+def test_logs_prints_tokens_when_reported(tmp_path: Path) -> None:
+    run_dir = _seed_run(tmp_path, "r1")
+    state = load_state(run_dir)
+    state.add_usage(
+        "build",
+        AgentResult(
+            ok=True,
+            output="",
+            session_id=None,
+            exit_code=0,
+            duration_s=0.0,
+            tokens=TokenUsage(
+                input_tokens=12_000,
+                output_tokens=400,
+                cache_read_tokens=1_000,
+                cache_write_tokens=50,
+            ),
+            model="sonnet",
+        ),
+    )
+    save_state(state, run_dir)
+    artifact = {
+        "role": "build",
+        "backend": "claude-code",
+        "model": "sonnet",
+        "cost_usd": 0.5,
+        "output": "built",
+        "ok": True,
+        "tokens": {
+            "input_tokens": 12_000,
+            "output_tokens": 400,
+            "cache_read_tokens": 1_000,
+            "cache_write_tokens": 50,
+        },
+    }
+    (run_dir / "agent" / "03-build.json").write_text(json.dumps(artifact))
+
+    result = runner.invoke(app, ["logs", "r1", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "03-build  role=build model=sonnet cost=$0.50  tokens=12.4k\n" in result.output
+    assert "total tokens: 12.0k in / 400 out (cache read 1.0k, write 50)" in result.output
+    # a single model: no per-model breakdown lines
+    assert "  sonnet: " not in result.output
 
 
 def test_logs_respects_tail_option(tmp_path: Path) -> None:

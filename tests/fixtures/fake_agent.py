@@ -57,6 +57,13 @@ def main() -> int:
                 "session_id": "fake-sess-1",
                 "total_cost_usd": 0.01,
                 "num_turns": 1,
+                "usage": {
+                    "input_tokens": 1200,
+                    "output_tokens": 300,
+                    "cache_read_input_tokens": 50,
+                    "cache_creation_input_tokens": 10,
+                },
+                "modelUsage": {"claude-sonnet-4-5": {"input_tokens": 1200, "output_tokens": 300}},
             }
         )
     )

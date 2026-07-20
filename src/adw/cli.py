@@ -58,6 +58,16 @@ _STATUS_COLOR = {
 }
 
 
+def _format_tokens(n: int) -> str:
+    """Compact token count (duplicates adw.ui.views.format_tokens — the UI extra
+    is optional, so the CLI can't import from adw.ui)."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
 def _report(state: rs.RunState, outcome: RunOutcome, run_dir: Path) -> None:
     color = _STATUS_COLOR[outcome.status]
     typer.secho(f"■ {outcome.status}: {outcome.reason}", fg=color, bold=True)
@@ -439,9 +449,16 @@ def logs(
         artifact = json.loads(path.read_text())
         cost = artifact.get("cost_usd") or 0.0
         role, model = artifact.get("role"), artifact.get("model")
+        tokens = artifact.get("tokens")
+        token_note = ""  # legacy artifacts (no tokens key) keep the exact line format
+        if isinstance(tokens, dict):
+            headline = (tokens.get("input_tokens") or 0) + (tokens.get("output_tokens") or 0)
+            token_note = f"  tokens={_format_tokens(headline)}"
         reason = artifact.get("route_reason")
         route_note = f"  route={reason}" if reason else ""
-        typer.echo(f"  {path.stem}  role={role} model={model} cost=${cost:.2f}{route_note}")
+        typer.echo(
+            f"  {path.stem}  role={role} model={model} cost=${cost:.2f}{token_note}{route_note}"
+        )
         output = (artifact.get("output") or "")[:tail]
         for line in output.splitlines() or [""]:
             typer.echo(f"    {line}")
@@ -463,6 +480,17 @@ def logs(
             typer.echo(f"  attempt {attempt}  {mark} {name} (exit {exit_code})")
 
     typer.echo(f"\ntotal cost: ${state.total_cost_usd:.2f}")
+    tokens = state.total_tokens
+    if tokens.total:
+        typer.echo(
+            f"total tokens: {_format_tokens(tokens.input_tokens)} in / "
+            f"{_format_tokens(tokens.output_tokens)} out "
+            f"(cache read {_format_tokens(tokens.cache_read_tokens)}, "
+            f"write {_format_tokens(tokens.cache_write_tokens)})"
+        )
+        if len(state.tokens_by_model) > 1:
+            for model_id, usage in state.tokens_by_model.items():
+                typer.echo(f"  {model_id}: {_format_tokens(usage.total)}")
     typer.echo(f"artifacts: {run_dir}")
 
 

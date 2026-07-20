@@ -20,6 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from adw import config, registry
+from adw.adapters.base import AgentResult, TokenUsage
 
 RunStatus = Literal[
     "running",
@@ -45,6 +46,8 @@ class StepRecord(BaseModel):
     ended_at: datetime | None = None
     session_id: str | None = None
     detail: str = ""
+    # This step's invocation usage; None distinguishes "unreported" from zero.
+    tokens: TokenUsage | None = None
 
 
 class RunState(BaseModel):
@@ -71,6 +74,9 @@ class RunState(BaseModel):
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
     total_cost_usd: float = 0.0
+    # Recorded tokens across the run; defaults keep legacy state.json loading.
+    total_tokens: TokenUsage = Field(default_factory=TokenUsage)
+    tokens_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
     outcome_detail: str = ""
     # run id from the auto-filed ticket that spawned this run (loop guard)
     source_ticket_run: str | None = None
@@ -99,9 +105,17 @@ class RunState(BaseModel):
             record.detail = detail
         return record
 
-    def add_cost(self, cost_usd: float | None) -> None:
-        if cost_usd:
-            self.total_cost_usd += cost_usd
+    def add_usage(self, step_name: str, result: AgentResult) -> None:
+        """Record one invocation's cost and tokens (per step, run total, per model)."""
+        if result.cost_usd:
+            self.total_cost_usd += result.cost_usd
+        if result.tokens is None:
+            return  # backend didn't report usage — never fabricate counts
+        self.step(step_name).tokens = result.tokens
+        self.total_tokens.add(result.tokens)
+        per_model = result.model_tokens or {result.model or "unknown": result.tokens}
+        for model_id, usage in per_model.items():
+            self.tokens_by_model.setdefault(model_id, TokenUsage()).add(usage)
 
 
 def slugify(text: str, max_len: int = 24) -> str:

@@ -16,6 +16,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from adw import limits  # noqa: E402
+from adw.adapters.base import AgentResult, TokenUsage  # noqa: E402
 from adw.queue import tickets as ticket_mod  # noqa: E402
 from adw.state.run_state import RunState, create_run_dir, save_state  # noqa: E402
 from adw.ui import views  # noqa: E402
@@ -28,6 +29,14 @@ def _stub_session_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("adw.limits.session_limits", lambda: [])
 
 
+_SEED_TOKENS = TokenUsage(
+    input_tokens=100_000,
+    output_tokens=12_400,
+    cache_read_tokens=1_200_000,
+    cache_write_tokens=45_000,
+)
+
+
 def _seed_run(
     repo: Path,
     run_id: str,
@@ -36,6 +45,7 @@ def _seed_run(
     state_repo: Path | None = None,
     base_branch: str = "",
     work_branch: str = "",
+    with_tokens: bool = False,
 ) -> Path:
     run_dir = create_run_dir(repo, run_id)
     state = RunState(
@@ -48,7 +58,26 @@ def _seed_run(
     state.gate_results.append(
         {"attempt": 1, "results": [{"name": "lint", "ok": True, "exit_code": 0}]}
     )
-    state.add_cost(1.23)
+    if with_tokens:
+        state.add_usage(
+            "plan",
+            AgentResult(
+                ok=True,
+                output="",
+                session_id=None,
+                exit_code=0,
+                duration_s=0.0,
+                cost_usd=1.23,
+                tokens=_SEED_TOKENS,
+                model_tokens={
+                    "claude-sonnet-4-5": TokenUsage(input_tokens=100_000, output_tokens=10_400),
+                    "claude-haiku-4-5": TokenUsage(input_tokens=1_500, output_tokens=500),
+                },
+                model="sonnet",
+            ),
+        )
+    else:
+        state.total_cost_usd = 1.23  # legacy run: cost only, no token fields populated
     state.status = status  # type: ignore[assignment]
     state.pending_gate = pending_gate
     save_state(state, run_dir)
@@ -61,6 +90,8 @@ def _seed_run(
         "output": "TRANSCRIPT-MARKER" + "x" * 1000,
         "ok": True,
     }
+    if with_tokens:
+        artifact["tokens"] = _SEED_TOKENS.model_dump()
     (run_dir / "agent" / "01-plan.json").write_text(json.dumps(artifact))
     return run_dir
 
@@ -144,7 +175,7 @@ def test_runs_page_lists_runs(tmp_path: Path) -> None:
 
 
 def test_sidebar_shows_total_spend(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "r1")  # seeds add_cost(1.23)
+    _seed_run(tmp_path, "r1")  # seeds total_cost_usd = 1.23
 
     body = TestClient(create_app(tmp_path)).get("/").text
     assert "Spend (all repos)" in body
@@ -245,6 +276,41 @@ def test_run_detail_renders_artifacts(tmp_path: Path) -> None:
     assert 'id="plan"' in body
 
     assert client.get("/runs/nope").status_code == 404
+
+
+def test_run_detail_shows_token_usage(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1", with_tokens=True)
+
+    body = TestClient(create_app(tmp_path)).get("/runs/r1").text
+    # run head: formatted headline total (input + output, cache excluded)
+    assert "<dt>tokens</dt>" in body
+    assert "112.4k" in body
+    # cache totals live in the tooltip, never the headline
+    assert "cache read 1.2M / write 45.0k" in body
+    # per-model chips (2+ models)
+    assert "claude-sonnet-4-5 — 110.4k" in body
+    assert "claude-haiku-4-5 — 2.0k" in body
+    # per-step timeline count
+    assert "112.4k tok" in body
+    # transcript chip
+    assert "tokens=112.4k" in body
+
+
+def test_run_detail_legacy_run_renders_no_token_ui(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "r1")  # no token fields anywhere
+
+    body = TestClient(create_app(tmp_path)).get("/runs/r1").text
+    assert "<dt>tokens</dt>" not in body
+    assert "tokens by model" not in body
+    assert "tok</span>" not in body
+    assert "tokens=" not in body
+
+
+def test_format_tokens() -> None:
+    assert views.format_tokens(0) == "0"
+    assert views.format_tokens(950) == "950"
+    assert views.format_tokens(12_400) == "12.4k"
+    assert views.format_tokens(1_234_567) == "1.2M"
 
 
 def test_action_buttons_by_status(tmp_path: Path) -> None:
@@ -878,7 +944,7 @@ def test_dashboard_metrics_unit() -> None:
     def mk(run_id: str, status: str, cost: float = 0.0, fix: int = 0) -> RunState:
         state = RunState(run_id=run_id, workflow="feature", task="t", repo="/tmp")
         state.status = status  # type: ignore[assignment]
-        state.add_cost(cost)
+        state.total_cost_usd = cost
         state.fix_attempts = fix
         return state
 

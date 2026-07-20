@@ -21,7 +21,7 @@ CHANGED_LINE = "return 'howdy'"
 def _seed_run(repo: Path, run_id: str, workflow: str = "feature", cost: float = 0.25) -> None:
     run_dir = create_run_dir(repo, run_id)
     state = RunState(run_id=run_id, workflow=workflow, task="t", repo=str(repo))
-    state.add_cost(cost)
+    state.total_cost_usd = cost
     state.outcome_detail = "did the thing"
     save_state(state, run_dir)
 

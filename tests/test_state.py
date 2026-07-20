@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from adw.adapters.base import AgentResult, TokenUsage
 from adw.state.run_state import (
     RunState,
     cost_rollup,
@@ -17,6 +18,25 @@ from adw.state.run_state import (
     save_state,
     slugify,
 )
+
+
+def _result(
+    cost: float | None = None,
+    tokens: TokenUsage | None = None,
+    model_tokens: dict[str, TokenUsage] | None = None,
+    model: str | None = None,
+) -> AgentResult:
+    return AgentResult(
+        ok=True,
+        output="",
+        session_id=None,
+        exit_code=0,
+        duration_s=0.0,
+        cost_usd=cost,
+        tokens=tokens,
+        model_tokens=model_tokens or {},
+        model=model,
+    )
 
 
 def test_slugify() -> None:
@@ -37,8 +57,8 @@ def test_state_roundtrip(tmp_path: Path) -> None:
     state.start_step("plan")
     state.end_step("plan", "ok", "session s1")
     state.build_session_id = "s1"
-    state.add_cost(0.25)
-    state.add_cost(None)
+    state.add_usage("plan", _result(cost=0.25))
+    state.add_usage("plan", _result(cost=None))
     save_state(state, run_dir)
     loaded = load_state(run_dir)
     assert loaded.build_session_id == "s1"
@@ -80,7 +100,7 @@ def test_cancelled_status_and_pid_fields_roundtrip(tmp_path: Path) -> None:
 
 def _run(workflow: str, cost: float) -> RunState:
     state = RunState(run_id=f"{workflow}-{cost}", workflow=workflow, task="t", repo="")
-    state.add_cost(cost)
+    state.add_usage("build", _result(cost=cost))
     return state
 
 
@@ -92,6 +112,94 @@ def test_cost_rollup() -> None:
     assert rollup.workflows["feature"].total_cost_usd == 0.75
     assert rollup.workflows["bug"].runs == 1
     assert rollup.workflows["bug"].total_cost_usd == 1.00
+
+
+def test_add_usage_accumulates_step_run_and_model(tmp_path: Path) -> None:
+    state = RunState(run_id="r1", workflow="feature", task="t", repo=str(tmp_path))
+    state.add_usage(
+        "build",
+        _result(
+            cost=0.5,
+            tokens=TokenUsage(input_tokens=100, output_tokens=20, cache_read_tokens=1000),
+            model="sonnet",
+        ),
+    )
+    state.add_usage(
+        "review",
+        _result(tokens=TokenUsage(input_tokens=10, output_tokens=5), model="haiku"),
+    )
+    assert state.total_cost_usd == 0.5
+    assert state.step("build").tokens == TokenUsage(
+        input_tokens=100, output_tokens=20, cache_read_tokens=1000
+    )
+    assert state.step("review").tokens == TokenUsage(input_tokens=10, output_tokens=5)
+    assert state.total_tokens == TokenUsage(
+        input_tokens=110, output_tokens=25, cache_read_tokens=1000
+    )
+    assert state.total_tokens.total == 135  # headline excludes cache traffic
+    # fallback attribution: each invocation lands on its runner-stamped model
+    assert state.tokens_by_model["sonnet"].total == 120
+    assert state.tokens_by_model["haiku"].total == 15
+
+
+def test_add_usage_prefers_backend_model_breakdown() -> None:
+    state = RunState(run_id="r1", workflow="feature", task="t", repo="")
+    state.add_usage(
+        "build",
+        _result(
+            tokens=TokenUsage(input_tokens=30, output_tokens=12),
+            model_tokens={
+                "claude-sonnet-4-5": TokenUsage(input_tokens=25, output_tokens=10),
+                "claude-haiku-4-5": TokenUsage(input_tokens=5, output_tokens=2),
+            },
+            model="sonnet",
+        ),
+    )
+    state.add_usage(
+        "fix-1",
+        _result(
+            tokens=TokenUsage(input_tokens=8, output_tokens=4),
+            model_tokens={"claude-sonnet-4-5": TokenUsage(input_tokens=8, output_tokens=4)},
+            model="sonnet",
+        ),
+    )
+    # backend-reported per-model usage wins; the stamped alias never appears
+    assert "sonnet" not in state.tokens_by_model
+    assert state.tokens_by_model["claude-sonnet-4-5"].total == 47
+    assert state.tokens_by_model["claude-haiku-4-5"].total == 7
+    assert state.total_tokens.total == 54
+
+
+def test_add_usage_without_tokens_leaves_state_untouched() -> None:
+    state = RunState(run_id="r1", workflow="feature", task="t", repo="")
+    state.add_usage("build", _result(cost=0.25, tokens=None))
+    assert state.total_cost_usd == 0.25
+    assert state.step("build").tokens is None
+    assert state.total_tokens == TokenUsage()
+    assert state.tokens_by_model == {}
+
+
+def test_add_usage_unknown_model_fallback() -> None:
+    state = RunState(run_id="r1", workflow="feature", task="t", repo="")
+    state.add_usage("build", _result(tokens=TokenUsage(input_tokens=3, output_tokens=1)))
+    assert state.tokens_by_model["unknown"].total == 4
+
+
+def test_legacy_state_without_token_fields_loads(tmp_path: Path) -> None:
+    run_dir = create_run_dir(tmp_path, "old")
+    state = RunState(run_id="old", workflow="feature", task="t", repo=str(tmp_path))
+    state.start_step("plan")
+    save_state(state, run_dir)
+    payload = json.loads((run_dir / "state.json").read_text())
+    del payload["total_tokens"]
+    del payload["tokens_by_model"]
+    del payload["steps"][0]["tokens"]
+    (run_dir / "state.json").write_text(json.dumps(payload))
+
+    loaded = load_state(run_dir)
+    assert loaded.total_tokens == TokenUsage()
+    assert loaded.tokens_by_model == {}
+    assert loaded.step("plan").tokens is None
 
 
 def test_cost_rollup_empty() -> None:
