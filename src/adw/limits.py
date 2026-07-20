@@ -1,7 +1,8 @@
-"""Best-effort session-limit probes for the sidebar (claude-code + codex).
+"""Best-effort session-limit probes (claude-code + codex).
 
-Account quota is host-global metadata, not run output, so it lives here in the
-UI layer rather than in the backend adapters. Neither CLI exposes a supported
+The core limit probe used by both the UI sidebar and the model router.
+Account quota is host-global metadata, not run output, so it lives here
+rather than in the backend adapters. Neither CLI exposes a supported
 machine-readable source, so both probes read what exists today:
 
 - claude-code: the OAuth usage endpoint, with the token Claude Code itself

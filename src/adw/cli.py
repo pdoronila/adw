@@ -111,7 +111,7 @@ def _execute(
         config=config,
         state=state,
         task=task,
-        agents=AgentRunner(config, run_dir, workflow=workflow_name, env=env),
+        agents=AgentRunner(config, run_dir, workflow=workflow_name, env=env, state=state),
         auto_approve_plan=auto_approve_plan,
         assume_yes=assume_yes,
         mode="async" if async_mode else "interactive",
@@ -434,14 +434,24 @@ def logs(
 
     typer.secho("\nagents:", bold=True)
     agent_dir = run_dir / "agent"
+    n_down = n_up = 0
     for path in sorted(agent_dir.glob("*.json")) if agent_dir.is_dir() else []:
         artifact = json.loads(path.read_text())
         cost = artifact.get("cost_usd") or 0.0
         role, model = artifact.get("role"), artifact.get("model")
-        typer.echo(f"  {path.stem}  role={role} model={model} cost=${cost:.2f}")
+        reason = artifact.get("route_reason")
+        route_note = f"  route={reason}" if reason else ""
+        typer.echo(f"  {path.stem}  role={role} model={model} cost=${cost:.2f}{route_note}")
         output = (artifact.get("output") or "")[:tail]
         for line in output.splitlines() or [""]:
             typer.echo(f"    {line}")
+        if isinstance(reason, str):
+            n_down += reason.startswith("downshift")
+            n_up += reason.startswith("upshift")
+    if n_down or n_up:
+        typer.secho(
+            f"\nrouting: {n_down} step(s) usage-capped, {n_up} step(s) escalated", bold=True
+        )
 
     typer.secho("\ngates:", bold=True)
     for round_ in state.gate_results:
@@ -498,7 +508,7 @@ def resume(
         config=config,
         state=state,
         task=state.task,
-        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env),
+        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env, state=state),
         mode="async",
         decision=decision,  # type: ignore[arg-type]
         env=env,
@@ -545,7 +555,7 @@ def retry(
         config=config,
         state=state,
         task=state.task,
-        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env),
+        agents=AgentRunner(config, run_dir, workflow=state.workflow, env=env, state=state),
         mode="async",
         env=env,
     )

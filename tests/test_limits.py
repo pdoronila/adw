@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from adw.ui import limits
+from adw import limits
 
 
 @pytest.fixture(autouse=True)

@@ -469,6 +469,8 @@ def validate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | 
             fg="yellow",
         )
         state.fix_attempts = attempt
+        if config.model_router.enabled:
+            state.role_failures[role] = state.role_failures.get(role, 0) + 1
         outcome = resume_turn(
             ctx,
             prompts.render("fix", failures=render_failures(failures)),
@@ -633,6 +635,8 @@ def gate_loop(
             fg="yellow",
         )
         state.fix_attempts = attempt
+        if config.model_router.enabled:
+            state.role_failures[role] = state.role_failures.get(role, 0) + 1
         outcome = resume_turn(
             ctx,
             prompts.render("fix", failures=render_failures(failures)),

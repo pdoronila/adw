@@ -37,6 +37,17 @@ def _seed_run(repo: Path, run_id: str) -> Path:
         "ok": True,
     }
     (agent_dir / "01-plan.json").write_text(json.dumps(artifact))
+    # A routed step; the artifact above has no route_reason (the no-reason path).
+    routed = {
+        "role": "build",
+        "backend": "claude-code",
+        "model": "haiku",
+        "cost_usd": 0.1,
+        "output": "built",
+        "ok": True,
+        "route_reason": "downshift: claude 5h at 96% -> haiku",
+    }
+    (agent_dir / "02-build.json").write_text(json.dumps(routed))
     return run_dir
 
 
@@ -50,6 +61,10 @@ def test_logs_prints_run_detail(tmp_path: Path) -> None:
     assert "lint" in result.output
     assert "$1.23" in result.output
     assert str(tmp_path) in result.output
+    assert "route=downshift:" in result.output
+    assert "routing: 1 step(s) usage-capped, 0 step(s) escalated" in result.output
+    # the artifact without a route_reason still renders, without a route note
+    assert "01-plan  role=plan model=sonnet cost=$1.23\n" in result.output
 
 
 def test_logs_respects_tail_option(tmp_path: Path) -> None:

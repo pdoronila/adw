@@ -66,6 +66,44 @@ def test_limits_parse_and_default() -> None:
         AdwConfig.model_validate({"limits": {"bogus": 1}})
 
 
+def test_model_router_defaults() -> None:
+    router = AdwConfig().model_router
+    assert router.enabled is False
+    assert router.ladders == {"claude-code": ["opus", "sonnet", "haiku"]}
+    assert router.downshift_warn == 0.80
+    assert router.downshift_critical == 0.95
+    assert router.escalate_after == 2
+
+
+def test_model_router_parse() -> None:
+    config = AdwConfig.model_validate(
+        {
+            "model_router": {
+                "enabled": True,
+                "ladders": {"claude-code": ["fable", "opus", "sonnet", "haiku"]},
+                "downshift_warn": 0.5,
+                "escalate_after": 1,
+            }
+        }
+    )
+    assert config.model_router.enabled is True
+    assert config.model_router.ladders == {"claude-code": ["fable", "opus", "sonnet", "haiku"]}
+    assert config.model_router.downshift_warn == 0.5
+    assert config.model_router.escalate_after == 1
+
+
+def test_model_router_empty_ladder_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"model_router": {"ladders": {"claude-code": []}}})
+
+
+def test_model_router_bad_thresholds_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate(
+            {"model_router": {"downshift_warn": 0.9, "downshift_critical": 0.8}}
+        )
+
+
 def test_fusion_defaults() -> None:
     config = AdwConfig.model_validate({"fusion": {}})
     assert config.fusion.opinions == ["opinion_a", "opinion_b"]

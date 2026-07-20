@@ -105,6 +105,31 @@ class LimitsConfig(StrictModel):
     max_cost_usd: float | None = None  # pause the run when total cost exceeds this
 
 
+class ModelRouterConfig(StrictModel):
+    enabled: bool = False
+    # backend name -> models ordered best -> cheapest; a role's `model` is its
+    # target tier (starting rung). Backends without a ladder are never routed.
+    ladders: dict[str, list[str]] = Field(
+        default_factory=lambda: {"claude-code": ["opus", "sonnet", "haiku"]}
+    )
+    downshift_warn: float = 0.80      # fraction of a usage window
+    downshift_critical: float = 0.95
+    escalate_after: int = 2           # gate/validation failures per upshift rung
+
+    @model_validator(mode="after")
+    def _check(self) -> ModelRouterConfig:
+        for backend, ladder in self.ladders.items():
+            if not ladder:
+                raise ValueError(f"model_router.ladders[{backend!r}] must not be empty")
+            if len(set(ladder)) != len(ladder):
+                raise ValueError(f"model_router.ladders[{backend!r}] has duplicate models")
+        if not (0 < self.downshift_warn <= self.downshift_critical <= 1):
+            raise ValueError("model_router thresholds must satisfy 0 < warn <= critical <= 1")
+        if self.escalate_after < 1:
+            raise ValueError("model_router.escalate_after must be >= 1")
+        return self
+
+
 class BackendOpts(StrictModel):
     binary: str
     extra_args: list[str] = Field(default_factory=list)
@@ -157,6 +182,7 @@ class AdwConfig(StrictModel):
     fusion: FusionConfig = Field(default_factory=FusionConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    model_router: ModelRouterConfig = Field(default_factory=ModelRouterConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     # name -> system instructions ("agent experts"); loaded from experts/*.md + inline
     experts: dict[str, str] = Field(default_factory=dict)

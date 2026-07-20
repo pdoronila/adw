@@ -60,6 +60,8 @@ class RunState(BaseModel):
     pgid: int | None = None   # its process group (start_new_session makes it a leader)
     build_session_id: str | None = None
     fix_attempts: int = 0
+    # per-role gate/validation failures this run (model router upshift input)
+    role_failures: dict[str, int] = Field(default_factory=dict)
     review_rounds: int = 0
     pending_gate: str | None = None  # "plan" | "final" | "budget" when awaiting a decision
     budget_waived: bool = False  # engineer approved continuing past the budget

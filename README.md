@@ -90,11 +90,24 @@ ship:
 
 limits:
   max_cost_usd: 5.0   # optional: pause the run when total agent cost exceeds this
+
+# optional: opt-in per-role model router (see "Model router" below)
+model_router:
+  enabled: true
+  ladders:
+    claude-code: [opus, sonnet, haiku]   # best -> cheapest; a role's model is its target tier
+  downshift_warn: 0.80      # usage fraction: downshift one rung
+  downshift_critical: 0.95  # usage fraction: jump to the cheapest rung
+  escalate_after: 2         # gate/validation failures per one-rung upshift
 ```
 
 When a run's total agent cost crosses `limits.max_cost_usd` it pauses with a `budget` gate — `adw resume <id> --approve` lifts the budget for the rest of that run, `--reject` stops it (the work branch is kept).
 
 Model strings are backend-native and passed through verbatim (`opus` for claude, `gpt-5-codex` for codex, `provider/model` for opencode). Global defaults live in `~/.config/adw/config.yaml`; the repo file wins. Run data lives in `~/.adw/` (override with `ADW_DATA_HOME`).
+
+### Model router
+
+Opt-in (`model_router.enabled`, off by default). Each backend gets a **ladder** of models ordered best → cheapest, and a role's `model` is its target tier — the rung it starts on. Per agent turn the router reads the live subscription usage (the same probe as the web UI's Limits sidebar) and preemptively **downshifts**: one rung past `downshift_warn`, straight to the cheapest rung past `downshift_critical`. When a role repeatedly fails gates/validation in a run it **upshifts** one rung per `escalate_after` failures — but usage pressure always wins: any downshift suppresses upshift entirely. Routing is **within-backend only** — it never switches backends, and backends without a ladder (or roles whose model isn't on one) are left untouched. If the limit probe fails or no subscription token is available, the run simply proceeds at the target tier — routing never fails a run. `adw logs <run-id>` shows each step's chosen model and the reason.
 
 ### Agent experts
 
@@ -127,7 +140,7 @@ adw logs <run-id>                       # pretty-print one run's steps, agent tr
 
 ### Available workflows
 
-Every workflow is composed from the same reusable steps (`src/adw/workflows/steps.py`); they differ in which agents run and where the human gates sit. Assign model tiers per role in `adw.yaml` (e.g. a cheap workhorse for `chore`, a SOTA model for `plan`/`research`). `--model`/`--backend` on `adw run` override this uniformly for a single run.
+Every workflow is composed from the same reusable steps (`src/adw/workflows/steps.py`); they differ in which agents run and where the human gates sit. Assign model tiers per role in `adw.yaml` (e.g. a cheap workhorse for `chore`, a SOTA model for `plan`/`research`) — with `model_router.enabled`, those tiers become starting rungs that auto-downshift near usage limits and escalate on repeated gate failures. `--model`/`--backend` on `adw run` override this uniformly for a single run.
 
 | Workflow | Shape | For |
 |---|---|---|

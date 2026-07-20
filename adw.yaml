@@ -24,6 +24,12 @@ workflow:
   max_fix_iterations: 3
   gate_order: [lint, typecheck, test]
 
+model_router:
+  enabled: true
+  ladders:
+    claude-code: [fable, opus, sonnet, haiku]   # fable is the ceiling; roles at fable/opus route down this ladder
+    # codex: []   # fill with codex model ids (best -> cheapest) to route codex roles
+
 # Each run in its own git worktree; use `--isolation container` per-run for a VM.
 isolation:
   type: worktree
