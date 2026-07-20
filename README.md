@@ -136,6 +136,7 @@ Every workflow is composed from the same reusable steps (`src/adw/workflows/step
 | `chore` | build → gate loop → **ship** (one workhorse agent, no plan/review) | small low-risk work (dep bumps, renames) |
 | `hotfix` | scout → **approve fix** → implement → gate loop → **ship ASAP** | production incidents; human signs off on the approach up front |
 | `cve` | research → **approve** → reproduce (failing test) → mitigate → gate loop → security review → **ship** | reproduce a vulnerability in your own repo, then build + regression-guard the protection |
+| `fusion` | N-model opinions ∥ → fuse → **approve** → validator gate → build → validate loop → review → **ship** | high-stakes or ambiguous problems worth multiple model perspectives |
 
 `feature` and `bug` split reconnaissance from planning: a read-only **scout** agent surveys the codebase first (relevant files, patterns to reuse, tests, constraints) and its findings feed the planner — a cheap way to raise plan quality.
 
@@ -149,6 +150,18 @@ adw run cve    "CVE-2024-XXXX: path traversal in read_document() — reproduce '
 ```
 
 The **cve** workflow is defensive: it reproduces the flaw as a security test *inside your own test suite* (the test fails against the vulnerable code, proving the hole), implements the protection so the test passes, and leaves that test behind as a permanent regression guard. Reproduction is confined to your repo — no external targeting.
+
+What `adw run fusion` does (multi-model opinion → fuse → auto-validate):
+
+1. **Opinions** *(agents, read-only, parallel)* — the roles in `fusion.opinions` (default `opinion_a`/`opinion_b`) each survey the repo and give an independent take on the task, each on its own backend/model via `fusion:<role>` overrides in `adw.yaml` (e.g. claude-code + codex). Results land in `opinions.md`: a side-by-side comparison table (role, backend, model, duration, cost — `n/a` where a backend reports no cost) followed by every opinion. One failed opinion degrades gracefully with a warning; only all-fail aborts.
+2. **Fusion** *(agent, read-only)* — consolidates the opinions into one plan (`fusion.md`) with explicit `Consensus` / `Divergence` / `Discarded` sections, then a `Fused plan`.
+3. **Engineer gate 1** — approve / edit / reject the fused plan.
+4. **Validator** *(agent, read-only)* — writes an executable bash validation gate **before** the build; the canonical copy lives in the run dir as `validate.sh`, outside the repo.
+5. **Build** *(agent)* — implements the fused plan.
+6. **Validate loop** *(code)* — runs the configured gates plus the generated script (copied to `.adw/validate.sh` and **re-copied before every attempt**, so a builder that edits the gate file gets overwritten); failures (each check echoes `FAIL: <feedback>`) route back into the build session, up to `fusion.max_validate_iterations` times.
+7. **Review loop → engineer gate 2 → ship** — same as `feature`.
+
+Cost note: fusion multiplies agent spend (N opinions + fusion + validator on top of build/review). `limits.max_cost_usd` applies — the budget is checked after every fusion step. The generated script runs like any gate; prefer `--isolation container` for untrusted tasks.
 
 What `adw run feature` does:
 

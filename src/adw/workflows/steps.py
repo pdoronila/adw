@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
 import typer
 
 from adw import human, prompts
+from adw.adapters.base import AgentResult
+from adw.config import GateConfig
 from adw.nodes import code_node, git_ops
 from adw.nodes.code_node import GateResult
 from adw.notify import notify
@@ -308,6 +311,182 @@ def agent_doc(
     return check_budget(ctx)
 
 
+def opinion_fanout(ctx: WorkflowContext, *, roles: list[str], task: str) -> RunOutcome | None:
+    """Run N read-only opinion agents in parallel — one per role, each on its own
+    backend/model (resolved via `<workflow>:<role>` overrides).
+
+    Writes run_dir/opinion-<role>.md per surviving opinion plus run_dir/opinions.md,
+    a side-by-side comparison table followed by every opinion. One failed opinion
+    degrades gracefully (warn, continue); only all-fail aborts the run. All RunState
+    mutation happens on the main thread — workers only invoke agents.
+    """
+    state = ctx.state
+    pending = [role for role in roles if not _done(ctx, f"opinion-{role}")]
+    if not pending and (ctx.run_dir / "opinions.md").exists():
+        return None  # resuming: every opinion ran and the comparison doc is on disk
+    results: dict[str, AgentResult] = {}
+    if pending:
+        for role in pending:
+            state.start_step(f"opinion-{role}")
+        save_state(state, ctx.run_dir)
+        prompt_text = prompts.render("opinion", task=task)
+        with ThreadPoolExecutor(max_workers=len(pending)) as pool:
+            futures = {
+                role: pool.submit(
+                    ctx.agents.run,
+                    role,
+                    prompt_text,
+                    cwd=ctx.repo_dir,
+                    step_name=f"opinion-{role}",
+                    read_only=True,
+                )
+                for role in pending
+            }
+            results = {role: future.result() for role, future in futures.items()}
+    for role in pending:
+        result = results[role]
+        state.add_cost(result.cost_usd)
+        if result.ok and result.output.strip():
+            (ctx.run_dir / f"opinion-{role}.md").write_text(result.output)
+            state.end_step(f"opinion-{role}", "ok", _session_note(result.session_id))
+        else:
+            state.end_step(f"opinion-{role}", "failed", result.error)
+            typer.secho(f"opinion agent {role!r} failed: {result.error}", fg="yellow")
+    surviving = [role for role in roles if (ctx.run_dir / f"opinion-{role}.md").exists()]
+    if not surviving:
+        errors = "; ".join(f"{role}: {results[role].error}" for role in pending)
+        return fail(ctx, "opinion", f"all opinion agents failed: {errors}")
+    lines = [
+        "# Opinions",
+        "",
+        "| role | backend | model | duration_s | cost_usd |",
+        "|---|---|---|---|---|",
+    ]
+    for role in surviving:
+        role_agent = ctx.config.resolve_role(role, "fusion")
+        run = results.get(role)  # roles done in a prior (paused) run read n/a
+        duration = f"{run.duration_s:.1f}" if run is not None else "n/a"
+        cost = f"{run.cost_usd:.2f}" if run is not None and run.cost_usd else "n/a"
+        lines.append(
+            f"| {role} | {role_agent.backend} | {role_agent.model or 'backend default'} "
+            f"| {duration} | {cost} |"
+        )
+    for role in surviving:
+        lines += ["", f"## Opinion: {role}", "", (ctx.run_dir / f"opinion-{role}.md").read_text()]
+    (ctx.run_dir / "opinions.md").write_text("\n".join(lines) + "\n")
+    save_state(state, ctx.run_dir)
+    return check_budget(ctx)
+
+
+def _extract_script(text: str) -> str:
+    """The first ```bash fenced block, or the whole stripped text when unfenced."""
+    match = re.search(r"```(?:bash|sh)?[ \t]*\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
+def validate_gate(ctx: WorkflowContext, *, fused_plan: str) -> RunOutcome | None:
+    """The VALIDATOR authors an executable gate script BEFORE the build.
+
+    The agent runs read-only — it emits the script as text and deterministic code
+    writes the canonical copy to run_dir/validate.sh (outside the repo), which
+    validate_loop re-copies into the worktree before every attempt.
+    """
+    state = ctx.state
+    if _done(ctx, "validate-gate"):
+        return None  # resuming: validate.sh is already on disk
+    state.start_step("validate-gate")
+    result = ctx.agents.run(
+        "validator",
+        prompts.render("validate_gate", task=ctx.task, plan=fused_plan),
+        cwd=ctx.repo_dir,
+        step_name="validate-gate",
+        read_only=True,
+    )
+    state.add_cost(result.cost_usd)
+    script = _extract_script(result.output) if result.ok else ""
+    if not script:
+        state.end_step("validate-gate", "failed", result.error)
+        reason = result.error or "empty validation script"
+        return fail(ctx, "validate-gate", f"validator agent failed: {reason}")
+    (ctx.run_dir / "validate.sh").write_text(script + "\n")
+    state.end_step("validate-gate", "ok", _session_note(result.session_id))
+    save_state(state, ctx.run_dir)
+    return check_budget(ctx)
+
+
+def validate_loop(ctx: WorkflowContext, *, role: str = "build") -> RunOutcome | None:
+    """gate_loop plus the generated validation gate; failures resume the build session.
+
+    The canonical script (run_dir/validate.sh) is re-copied to <repo>/.adw/validate.sh
+    before EVERY attempt, overwriting any builder tampering; copying into the repo
+    (not an absolute host path) keeps it runnable under container isolation.
+    """
+    state, config, repo = ctx.state, ctx.config, ctx.repo_dir
+    if any(r.name.startswith("v-gates-") and r.status == "ok" for r in state.steps):
+        return None  # this round's gates already passed (resume)
+    order = [*config.gate_order(), "validate"]
+    gates = {
+        **config.gates,
+        "validate": GateConfig(
+            command="bash .adw/validate.sh", timeout=config.fusion.validate_timeout
+        ),
+    }
+    # A dedicated log dir so attempt-N-<name>.log never collides with gate_loop's.
+    gates_dir = ctx.run_dir / "gates" / "validate"
+    max_fixes = config.fusion.max_validate_iterations
+    passed = False
+    for attempt in range(1, max_fixes + 2):
+        target = repo / ".adw" / "validate.sh"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ctx.run_dir / "validate.sh", target)
+        state.start_step(f"v-gates-{attempt}")
+        results = code_node.run_gates(order, gates, repo, gates_dir, attempt, ctx.env)
+        state.gate_results.append(
+            {
+                "attempt": attempt,
+                "results": [
+                    {"name": r.name, "ok": r.ok, "exit_code": r.exit_code} for r in results
+                ],
+            }
+        )
+        failures = [r for r in results if not r.ok]
+        if not failures:
+            state.end_step(f"v-gates-{attempt}", "ok")
+            state.gates_passed = True
+            save_state(state, ctx.run_dir)
+            passed = True
+            break
+        names = ", ".join(f.name for f in failures)
+        state.end_step(f"v-gates-{attempt}", "failed", f"failed: {names}")
+        save_state(state, ctx.run_dir)
+        if attempt > max_fixes:
+            break
+        typer.secho(
+            f"validation failed ({names}); routing back to {role} agent "
+            f"[fix {attempt}/{max_fixes}]",
+            fg="yellow",
+        )
+        state.fix_attempts = attempt
+        outcome = resume_turn(
+            ctx,
+            prompts.render("fix", failures=render_failures(failures)),
+            role=role,
+            step_name=f"v-fix-{attempt}",
+        )
+        if outcome is not None:
+            return outcome
+    if not passed:
+        return fail(
+            ctx,
+            "validate",
+            f"validation still failing after {max_fixes} fix attempts",
+            hints=[f"inspect logs: {gates_dir}", f"adw status {state.run_id}"],
+        )
+    return None
+
+
 def _decide(ctx: WorkflowContext, *, kind: str, artifact_name: str) -> str | None:
     """Return 'approve'/'reject', or None to pause (async mode with no decision).
 
@@ -487,6 +666,7 @@ _WORKFLOW_COMMIT_TYPE = {
     "chore": "chore",
     "hotfix": "fix",
     "cve": "fix",
+    "fusion": "feat",
 }
 
 

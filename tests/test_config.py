@@ -66,6 +66,23 @@ def test_limits_parse_and_default() -> None:
         AdwConfig.model_validate({"limits": {"bogus": 1}})
 
 
+def test_fusion_defaults() -> None:
+    config = AdwConfig.model_validate({"fusion": {}})
+    assert config.fusion.opinions == ["opinion_a", "opinion_b"]
+    assert config.fusion.max_validate_iterations == 3
+    assert config.fusion.validate_timeout == 300
+
+
+def test_fusion_empty_opinions_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"fusion": {"opinions": []}})
+
+
+def test_fusion_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        AdwConfig.model_validate({"fusion": {"bogus": 1}})
+
+
 def test_notify_defaults_off() -> None:
     config = AdwConfig()
     assert config.notify.macos is False

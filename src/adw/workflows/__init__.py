@@ -7,6 +7,7 @@ from adw.workflows.bug import BugWorkflow
 from adw.workflows.chore import ChoreWorkflow
 from adw.workflows.cve import CveWorkflow
 from adw.workflows.feature import FeatureWorkflow
+from adw.workflows.fusion import FusionWorkflow
 from adw.workflows.hotfix import HotfixWorkflow
 
 WORKFLOWS: dict[str, Workflow] = {
@@ -17,6 +18,7 @@ WORKFLOWS: dict[str, Workflow] = {
         ChoreWorkflow(),
         HotfixWorkflow(),
         CveWorkflow(),
+        FusionWorkflow(),
     )
 }
 

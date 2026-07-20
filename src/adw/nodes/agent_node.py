@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -37,6 +38,8 @@ class AgentRunner:
         # Continue transcript numbering across a resumed run.
         agent_dir = run_dir / "agent"
         self._step = len(list(agent_dir.glob("*.json"))) if agent_dir.is_dir() else 0
+        # Parallel fan-out (opinion agents) shares this runner across threads.
+        self._lock = threading.Lock()
 
     def run(
         self,
@@ -74,18 +77,19 @@ class AgentRunner:
         inv: AgentInvocation,
         result: AgentResult,
     ) -> None:
-        self._step += 1
-        agent_dir = self.run_dir / "agent"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        artifact = {
-            "role": role,
-            "backend": role_agent.backend,
-            "model": inv.model,
-            "expert": role_agent.expert,
-            "resumed_session": inv.session_id,
-            "read_only": inv.read_only,
-            "prompt": inv.prompt,
-            **result.to_artifact(),
-        }
-        path = agent_dir / f"{self._step:02d}-{step_name}.json"
-        path.write_text(json.dumps(artifact, indent=2, default=str))
+        with self._lock:
+            self._step += 1
+            agent_dir = self.run_dir / "agent"
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            artifact = {
+                "role": role,
+                "backend": role_agent.backend,
+                "model": inv.model,
+                "expert": role_agent.expert,
+                "resumed_session": inv.session_id,
+                "read_only": inv.read_only,
+                "prompt": inv.prompt,
+                **result.to_artifact(),
+            }
+            path = agent_dir / f"{self._step:02d}-{step_name}.json"
+            path.write_text(json.dumps(artifact, indent=2, default=str))

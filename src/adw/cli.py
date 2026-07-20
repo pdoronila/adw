@@ -225,6 +225,13 @@ def _race(workflow: str, task: str, repo: Path, config: AdwConfig, n: int) -> rs
     return winner
 
 
+def _workflow_roles(workflow: str | None, config: AdwConfig) -> list[str]:
+    """The agent roles a workflow exercises (fusion has its own cast)."""
+    if workflow == "fusion":
+        return [*config.fusion.opinions, "fusion", "validator", "build", "review"]
+    return ["scout", "plan", "build", "review"]
+
+
 def _print_dry_run(
     workflow: str,
     task: str,
@@ -246,8 +253,8 @@ def _print_dry_run(
     if overrides:
         typer.echo(f"overrides: {', '.join(overrides)}")
     typer.echo("agent roles:")
-    for role in ("scout", "plan", "build", "review"):
-        ra = config.resolve_role(role)
+    for role in _workflow_roles(workflow, config):
+        ra = config.resolve_role(role, workflow)
         typer.echo(f"  {role:<8} -> {ra.backend} (model: {ra.model or 'backend default'})")
     typer.echo(f"gates (order): {', '.join(config.gate_order()) or '(none configured!)'}")
     for name in config.gate_order():
@@ -477,7 +484,8 @@ def resume(
         typer.secho("the budget gate has no artifact to edit; use --approve or --reject", fg="red")
         raise typer.Exit(2)
     if edit:
-        artifact = run_dir / ("plan.md" if state.pending_gate == "plan" else "review.md")
+        plan_doc = "fusion.md" if state.workflow == "fusion" else "plan.md"
+        artifact = run_dir / (plan_doc if state.pending_gate == "plan" else "review.md")
         subprocess.run([os.environ.get("EDITOR", "vi"), str(artifact)])
     decision = "reject" if reject else "approve"
 
@@ -694,6 +702,12 @@ def doctor(repo: Path = REPO_OPT) -> None:
         ra = config.resolve_role(role)
         marker = "✓" if shutil.which(config.backends.for_backend(ra.backend).binary) else "✗"
         typer.echo(f"  {marker} {role:<8} -> {ra.backend} / {ra.model or 'default model'}")
+    for role in (*config.fusion.opinions, "fusion", "validator"):
+        ra = config.resolve_role(role, "fusion")
+        marker = "✓" if shutil.which(config.backends.for_backend(ra.backend).binary) else "✗"
+        typer.echo(
+            f"  {marker} {f'fusion:{role}':<16} -> {ra.backend} / {ra.model or 'default model'}"
+        )
     typer.secho("gates:", bold=True)
     if not config.gates:
         typer.secho("  ✗ none configured", fg="red")

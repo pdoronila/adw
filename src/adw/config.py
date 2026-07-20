@@ -84,6 +84,19 @@ class IsolationConfig(StrictModel):
     workdir: str = "/work"
 
 
+class FusionConfig(StrictModel):
+    # role names fired in parallel by the opinion step; resolved via resolve_role(role, "fusion")
+    opinions: list[str] = Field(default_factory=lambda: ["opinion_a", "opinion_b"])
+    max_validate_iterations: int = 3
+    validate_timeout: int = 300  # seconds for the generated gate script
+
+    @model_validator(mode="after")
+    def _check_opinions(self) -> FusionConfig:
+        if not self.opinions:
+            raise ValueError("fusion.opinions must not be empty")
+        return self
+
+
 class QueueConfig(StrictModel):
     file_failures: bool = False  # auto-file an investigation ticket when a run fails
 
@@ -141,6 +154,7 @@ class AdwConfig(StrictModel):
     ship: ShipConfig = Field(default_factory=ShipConfig)
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     isolation: IsolationConfig = Field(default_factory=IsolationConfig)
+    fusion: FusionConfig = Field(default_factory=FusionConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)

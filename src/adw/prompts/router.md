@@ -16,6 +16,7 @@ You are the FACTORY ROUTER in an automated software factory. Classify the incomi
 - `bug` — a defect in existing behavior that isn't an active outage.
 - `cve` — a known vulnerability to reproduce and protect against.
 - `chore` — small, low-risk work (dependency bumps, renames, docs, formatting).
+- `fusion` — high-stakes or ambiguous problems where multiple model perspectives are worth the extra cost; multi-model opinion + fused plan + generated validation gate.
 - `feature` — new functionality; the default when nothing more specific fits.
 
 ## Output

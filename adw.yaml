@@ -12,6 +12,13 @@ agents:
     plan:   {backend: claude-code, model: fable}
     build:  {backend: claude-code, model: fable}
     review: {backend: claude-code, model: opus}
+    fusion:opinion_a: {backend: claude-code, model: fable}
+    fusion:opinion_b: {backend: codex}            # codex CLI's default model
+    fusion:fusion:    {backend: claude-code, model: fable}
+    fusion:validator: {backend: claude-code, model: opus}
+
+fusion:
+  opinions: [opinion_a, opinion_b]
 
 workflow:
   max_fix_iterations: 3
