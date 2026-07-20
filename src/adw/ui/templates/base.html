@@ -28,8 +28,13 @@
     </nav>
     {% block sidebar_extra %}{% endblock %}
     <div class="sidebar-foot">
-      <span class="nav-label">Spend</span>
+      <span class="nav-label">Spend (all repos)</span>
       <span class="key-hint">total ${{ "%.2f"|format(total_spend) }}</span>
+      <span class="nav-label">Limits</span>
+      {% for backend in ["claude", "codex"] %}
+      {%- set rows = session_limits | selectattr("backend", "equalto", backend) | list %}
+      <span class="key-hint limit-row">{{ backend }}{% if rows %}{% for l in rows %} {{ "wk" if l.label == "weekly" else l.label }} {{ "%.0f"|format(l.used_percent) }}%{% if not loop.last %} ·{% endif %}{% endfor %}{% set stamped = rows | selectattr("as_of") | list %}{% if stamped %} <span class="limit-asof">as of {{ humanize_ts(stamped[0].as_of) }}</span>{% endif %}{% else %} —{% endif %}</span>
+      {% endfor %}
       <span class="nav-label">Keys</span>
       <span class="key-hint"><kbd>/</kbd> search</span>
       <span class="key-hint"><kbd>r</kbd> new run</span>

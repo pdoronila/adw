@@ -17,8 +17,14 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from adw.queue import tickets as ticket_mod  # noqa: E402
 from adw.state.run_state import RunState, create_run_dir, save_state  # noqa: E402
-from adw.ui import views  # noqa: E402
+from adw.ui import limits, views  # noqa: E402
 from adw.ui.server import create_app, create_root_app  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _stub_session_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UI tests must never hit the limit probes (subprocess/network/Keychain)."""
+    monkeypatch.setattr("adw.ui.limits.session_limits", lambda: [])
 
 
 def _seed_run(
@@ -140,8 +146,50 @@ def test_sidebar_shows_total_spend(tmp_path: Path) -> None:
     _seed_run(tmp_path, "r1")  # seeds add_cost(1.23)
 
     body = TestClient(create_app(tmp_path)).get("/").text
-    assert "Spend" in body
+    assert "Spend (all repos)" in body
     assert "$1.23" in body
+
+
+def test_sidebar_spend_sums_all_mounted_repos(tmp_path: Path) -> None:
+    alpha, beta = _two_repos(tmp_path)
+    _seed_run(alpha, "r1")  # 1.23 each
+    _seed_run(beta, "r2")
+    client = TestClient(create_root_app([alpha, beta]))
+
+    for slug in ("alpha", "beta"):
+        body = client.get(f"/r/{slug}/").text
+        # sidebar spend is global; the dashboard tile stays repo-local
+        assert "$2.46" in body
+        assert "$1.23" in body
+
+
+def test_sidebar_shows_session_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    sample = [
+        limits.SessionLimit(backend="claude", label="5h", used_percent=32.0),
+        limits.SessionLimit(backend="claude", label="weekly", used_percent=61.4),
+        limits.SessionLimit(
+            backend="codex",
+            label="weekly",
+            used_percent=1.0,
+            as_of=datetime.now(UTC) - timedelta(hours=3),
+        ),
+    ]
+    monkeypatch.setattr("adw.ui.limits.session_limits", lambda: sample)
+
+    body = TestClient(create_app(tmp_path)).get("/").text
+    assert "Limits" in body
+    assert "claude 5h 32% · wk 61%" in body
+    assert "codex wk 1%" in body
+    assert "as of 3h ago" in body
+
+
+def test_sidebar_limits_unavailable_renders_dash(tmp_path: Path) -> None:
+    # autouse stub: both probes unavailable
+    body = TestClient(create_app(tmp_path)).get("/").text
+    assert "claude —" in body
+    assert "codex —" in body
 
 
 def test_tickets_page_lists_tickets(tmp_path: Path) -> None:

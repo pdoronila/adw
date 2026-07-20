@@ -27,7 +27,7 @@ from adw import registry
 from adw.config import load_config
 from adw.queue import tickets as ticket_mod
 from adw.state import run_state as rs
-from adw.ui import runner, views
+from adw.ui import limits, runner, views
 
 _HERE = Path(__file__).parent
 
@@ -79,7 +79,10 @@ def create_root_app(repo_paths: list[Path]) -> FastAPI:
     ]
     app = FastAPI(title="adw")
     for info, (_, path) in zip(infos, slugged, strict=True):
-        app.mount(info["root"], create_app(path, root=info["root"], repos=infos))
+        app.mount(
+            info["root"],
+            create_app(path, root=info["root"], repos=infos, all_repo_paths=repos),
+        )
 
     @app.get("/")
     def index() -> RedirectResponse:
@@ -90,10 +93,16 @@ def create_root_app(repo_paths: list[Path]) -> FastAPI:
 
 
 def create_app(
-    repo: Path, *, root: str = "", repos: list[dict[str, str]] | None = None
+    repo: Path,
+    *,
+    root: str = "",
+    repos: list[dict[str, str]] | None = None,
+    all_repo_paths: list[Path] | None = None,
 ) -> FastAPI:
     if repos is None:
         repos = [{"slug": repo.name, "label": repo.name, "root": root}]
+    if all_repo_paths is None:
+        all_repo_paths = [repo]
     app = FastAPI(title="adw")
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals["pill_class"] = views.pill_class
@@ -135,7 +144,10 @@ def create_app(
         return {
             **_board_context(),
             "run_count": len(runs),
-            "total_spend": sum(r.total_cost_usd for r in runs),
+            # Sidebar spend is global (every mounted repo); the dashboard's own
+            # tiles stay repo-local via `_dashboard_context`.
+            "total_spend": views.global_spend(all_repo_paths),
+            "session_limits": limits.session_limits(),
             "workflows": views.workflow_options(),
             "ticket_workflows": views.ticket_workflow_options(),
             "toast_message": views.toast_message(toast),

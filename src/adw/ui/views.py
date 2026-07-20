@@ -114,6 +114,11 @@ def list_runs(repo: Path) -> list[rs.RunState]:
     return list(reversed(rs.list_runs(repo)))
 
 
+def global_spend(paths: list[Path]) -> float:
+    """Recorded spend summed across every mounted repo (for the sidebar)."""
+    return sum(r.total_cost_usd for path in paths for r in rs.list_runs(path))
+
+
 def dashboard_metrics(runs: list[rs.RunState]) -> dict[str, object]:
     """Aggregate health/cost/throughput metrics for the dashboard page.
 
