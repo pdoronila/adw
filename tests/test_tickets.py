@@ -23,6 +23,7 @@ from adw.queue.tickets import (
     requeue,
     set_priority,
     tickets_root,
+    update_ticket,
     write_ticket,
 )
 
@@ -557,6 +558,56 @@ def test_set_priority_preserves_blocked_by(tmp_path: Path) -> None:
     reparsed = parse_ticket(path)
     assert reparsed.priority == 1
     assert reparsed.blocked_by == ["a", "b"]
+
+
+def test_update_ticket_changes_fields_and_preserves_repo_and_blocked_by(
+    tmp_path: Path,
+) -> None:
+    path = write_ticket(
+        tmp_path,
+        "old title",
+        "old body",
+        workflow="feature",
+        priority=5,
+        target_repo=Path("/some/other/repo"),
+        blocked_by=["a", "b"],
+    )
+    ticket = parse_ticket(path)
+    update_ticket(ticket, title="new title", workflow="bug", priority=1, body="new body")
+
+    assert ticket.title == "new title"
+    assert ticket.workflow == "bug"
+    assert ticket.priority == 1
+    assert ticket.body == "new body"
+
+    reparsed = parse_ticket(path)
+    assert reparsed.title == "new title"
+    assert reparsed.workflow == "bug"
+    assert reparsed.priority == 1
+    assert reparsed.body == "new body"
+    assert reparsed.repo == Path("/some/other/repo")
+    assert reparsed.blocked_by == ["a", "b"]
+
+
+def test_update_ticket_partial_preserves_body(tmp_path: Path) -> None:
+    path = write_ticket(tmp_path, "old title", "the body", workflow="bug", priority=3)
+    before = path.read_text()
+    update_ticket(parse_ticket(path), title="new title")
+
+    reparsed = parse_ticket(path)
+    assert reparsed.title == "new title"
+    assert reparsed.workflow == "bug"
+    assert reparsed.priority == 3
+    assert reparsed.body == "the body"
+    assert path.read_text().split("---", 2)[2] == before.split("---", 2)[2]
+
+
+def test_update_ticket_non_queue_raises(tmp_path: Path) -> None:
+    write_ticket(tmp_path, "in flight", "")
+    ticket = claim_next(tmp_path)
+    assert ticket is not None
+    with pytest.raises(TicketError, match=r"is in in_progress/, not queue/"):
+        update_ticket(ticket, title="nope")
 
 
 def test_cli_ticket_new_blocked_by(tmp_path: Path) -> None:

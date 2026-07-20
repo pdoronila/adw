@@ -286,6 +286,50 @@ def test_post_ticket_requeue(tmp_path: Path) -> None:
     assert any(t.title == "Requeue me" for t in ticket_mod.list_tickets(tmp_path, "queue"))
 
 
+def test_post_ticket_edit_redirects_with_toast(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Old title", "old body").stem
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(
+        f"/tickets/{stem}/edit",
+        data={"title": "New title", "body": "new body", "workflow": "bug", "priority": "2"},
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-edited"
+    ticket = ticket_mod.list_tickets(tmp_path, "queue")[0]
+    assert ticket.title == "New title"
+    assert ticket.body == "new body"
+    assert ticket.workflow == "bug"
+    assert ticket.priority == 2
+
+
+def test_post_ticket_edit_non_queue_redirects_with_toast(tmp_path: Path) -> None:
+    ticket_mod.write_ticket(tmp_path, "Done work", "body")
+    ticket = ticket_mod.claim_next(tmp_path)
+    assert ticket is not None
+    ticket_mod.finish(ticket, tmp_path, "failed", "boom", "run-1")
+    failed = ticket_mod.list_tickets(tmp_path, "failed")[0]
+    before = failed.path.read_text()
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+
+    resp = client.post(
+        f"/tickets/{failed.path.stem}/edit",
+        data={"title": "New title", "body": "", "workflow": "bug", "priority": "1"},
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/tickets?toast=ticket-not-editable"
+    assert failed.path.read_text() == before
+
+
+def test_post_ticket_edit_unknown_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path), follow_redirects=False)
+    resp = client.post(
+        "/tickets/nope/edit",
+        data={"title": "x", "body": "", "workflow": "bug", "priority": "1"},
+    )
+    assert resp.status_code == 404
+
+
 def test_post_ticket_delete_unknown_404(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path), follow_redirects=False)
     assert client.post("/tickets/nope/delete").status_code == 404
@@ -496,6 +540,24 @@ def test_ticket_detail_fragment_non_queue_state(tmp_path: Path) -> None:
     resp = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}")
     assert resp.status_code == 200
     assert "failed" in resp.text
+
+
+def test_ticket_detail_fragment_edit_form_for_queue_only(tmp_path: Path) -> None:
+    stem = ticket_mod.write_ticket(tmp_path, "Edit me", "some body", workflow="bug").stem
+
+    body = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{stem}").text
+    assert f'action="/tickets/{stem}/edit"' in body
+    assert '<option value="bug" selected>' in body
+    assert 'name="title" value="Edit me"' in body
+
+    ticket_mod.write_ticket(tmp_path, "Read only", "still visible")
+    claimed = ticket_mod.claim_ticket(tmp_path, "Read only")
+    ticket_mod.finish(claimed, tmp_path, "failed", "boom", "run-1")
+    failed_stem = ticket_mod.list_tickets(tmp_path, "failed")[0].path.stem
+
+    body = TestClient(create_app(tmp_path)).get(f"/fragments/tickets/{failed_stem}").text
+    assert "/edit" not in body
+    assert "still visible" in body
 
 
 def test_ticket_detail_fragment_unknown_404(tmp_path: Path) -> None:

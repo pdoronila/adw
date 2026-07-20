@@ -9,6 +9,24 @@
     {% for b in blockers %}<span class="pill{% if b.pending %} pill-blocked{% endif %}">{{ b.title }}</span>{% endfor %}
   </div>
   {% endif %}
+  {% if editable %}
+  <form class="stack" method="post" action="{{ root }}/tickets/{{ ticket.id }}/edit">
+    <label>title <input type="text" name="title" value="{{ ticket.title }}" required></label>
+    <label>body <textarea name="body" rows="6">{{ ticket.body }}</textarea></label>
+    <div class="row">
+      <label>workflow
+        <select name="workflow">
+          {% for name, desc in ticket_workflows %}
+          <option value="{{ name }}"{% if name == ticket.workflow %} selected{% endif %}>{% if name == "auto" %}best guess (auto){% else %}{{ name }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>priority <input type="number" name="priority" value="{{ ticket.priority }}"></label>
+    </div>
+    <div class="row"><button type="submit">Save changes</button></div>
+  </form>
+  {% else %}
   {% if ticket.body %}<div class="ticket-detail-body">{{ ticket.body }}</div>
   {% else %}<div class="empty empty-sm">no description</div>{% endif %}
+  {% endif %}
 </div>

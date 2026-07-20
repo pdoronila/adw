@@ -46,6 +46,8 @@ TOAST_MESSAGES: dict[str, str] = {
     "retry-started": "Retry started",
     "cancel-requested": "Cancel requested",
     "ticket-created": "Ticket created",
+    "ticket-edited": "Ticket updated",
+    "ticket-not-editable": "Only queued tickets can be edited",
     "ticket-deleted": "Ticket deleted",
     "ticket-requeued": "Ticket requeued",
     "ticket-archived": "Ticket archived",
@@ -267,6 +269,8 @@ def ticket_detail_context(repo: Path, ticket: ticket_mod.Ticket) -> dict[str, ob
     return {
         "ticket": ticket,
         "state": ticket.path.parent.name,
+        "editable": ticket.path.parent.name == "queue",
+        "ticket_workflows": ticket_workflow_options(),
         "blockers": [
             {"stem": stem, "title": titles.get(stem, stem), "pending": stem in pending}
             for stem in ticket.blocked_by

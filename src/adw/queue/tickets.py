@@ -304,6 +304,48 @@ def set_priority(ticket: Ticket, priority: int) -> None:
     ticket.priority = priority
 
 
+def update_ticket(
+    ticket: Ticket,
+    *,
+    title: str | None = None,
+    workflow: str | None = None,
+    priority: int | None = None,
+    body: str | None = None,
+) -> None:
+    """Rewrite frontmatter fields and body in place; queue-state tickets only."""
+    if ticket.path.parent.name != "queue":
+        raise TicketError(
+            f"ticket {ticket.id!r} is in {ticket.path.parent.name}/, not queue/"
+        )
+    text = ticket.path.read_text()
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        raise TicketError(f"{ticket.path}: malformed frontmatter")
+    meta: dict[str, Any] = yaml.safe_load(parts[1]) or {}
+    if title is not None:
+        meta["title"] = title
+    if workflow is not None:
+        meta["workflow"] = workflow
+    if priority is not None:
+        meta["priority"] = int(priority)
+    frontmatter = yaml.safe_dump(meta, sort_keys=False).strip()
+    if body is not None:
+        content = f"---\n{frontmatter}\n---\n\n{body.strip()}\n"
+    else:
+        content = f"---\n{frontmatter}\n---{parts[2]}"
+    tmp = ticket.path.with_name(ticket.path.name + ".tmp")
+    tmp.write_text(content)
+    tmp.replace(ticket.path)
+    if title is not None:
+        ticket.title = title
+    if workflow is not None:
+        ticket.workflow = workflow
+    if priority is not None:
+        ticket.priority = int(priority)
+    if body is not None:
+        ticket.body = body.strip()
+
+
 def archive(repo: Path, ticket: Ticket) -> Path:
     """Move a done ticket into archived/, preserving its content (incl. '## Result')."""
     ensure_dirs(repo)

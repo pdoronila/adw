@@ -337,6 +337,27 @@ def create_app(
         ticket_mod.remove(ticket)
         return RedirectResponse(f"{root}/tickets?toast=ticket-deleted", status_code=303)
 
+    @app.post("/tickets/{ticket_id}/edit")
+    def edit_ticket(
+        ticket_id: str,
+        title: str = Form(...),
+        body: str = Form(""),
+        workflow: str = Form("feature"),
+        priority: int = Form(ticket_mod.DEFAULT_PRIORITY),
+    ) -> RedirectResponse:
+        try:
+            ticket = ticket_mod.find_ticket(repo, ticket_id, ticket_mod.FIND_STATES)
+        except ticket_mod.TicketError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if ticket.path.parent.name != "queue":
+            return RedirectResponse(
+                f"{root}/tickets?toast=ticket-not-editable", status_code=303
+            )
+        ticket_mod.update_ticket(
+            ticket, title=title, workflow=workflow, priority=int(priority), body=body
+        )
+        return RedirectResponse(f"{root}/tickets?toast=ticket-edited", status_code=303)
+
     @app.post("/tickets/{ticket_id}/requeue")
     def requeue_ticket(ticket_id: str) -> RedirectResponse:
         try:
