@@ -12,10 +12,12 @@ agents:
     plan:   {backend: claude-code, model: fable}
     build:  {backend: claude-code, model: fable}
     review: {backend: claude-code, model: opus}
-    fusion:opinion_a: {backend: claude-code, model: fable}
-    fusion:opinion_b: {backend: codex}            # codex CLI's default model
+    # opinions = cheapest rung: diverse quick takes; router keeps them here (nothing below haiku)
+    fusion:opinion_a: {backend: claude-code, model: sonnet}
+    fusion:opinion_b: {backend: codex, model: gpt-5.6-luna}   # cheap/fast codex opinion (routes on the codex ladder)
+    # the merger = top rung (expensive); router only steps it DOWN under limit pressure
     fusion:fusion:    {backend: claude-code, model: fable}
-    fusion:validator: {backend: claude-code, model: opus}
+    fusion:validator: {backend: claude-code, model: opus}   # writes the validation gate
 
 fusion:
   opinions: [opinion_a, opinion_b]
@@ -28,7 +30,7 @@ model_router:
   enabled: true
   ladders:
     claude-code: [fable, opus, sonnet, haiku]   # fable is the ceiling; roles at fable/opus route down this ladder
-    # codex: []   # fill with codex model ids (best -> cheapest) to route codex roles
+    codex: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]   # best -> cheapest (add gpt-5.4-mini as an even cheaper floor)
 
 # Each run in its own git worktree; use `--isolation container` per-run for a VM.
 isolation:
