@@ -984,7 +984,10 @@ def test_runs_nav_links(tmp_path: Path) -> None:
 
     home = client.get("/").text
     assert 'href="/runs"' in home
-    assert '<a href="/" class="nav-link active">Dashboard</a>' in home
+    assert (
+        '<a href="/" class="nav-link active">Dashboard '
+        '<span class="nav-keys"><kbd>g</kbd><kbd>d</kbd></span></a>'
+    ) in home
 
     runs_body = client.get("/runs").text
     assert "r1" in runs_body

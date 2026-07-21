@@ -200,6 +200,20 @@ body {
 }
 .nav-link.active .count { background: transparent; border-color: currentColor; color: inherit; }
 
+/* inline shortcut hints, right-aligned after the nav label */
+.nav-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+.nav-keys kbd {
+  margin-right: 0;
+  color: var(--text-muted);
+  background: transparent;
+}
+.nav-link.active .nav-keys kbd { color: inherit; border-color: currentColor; }
+
 .sidebar-foot {
   margin-top: auto;
   display: flex;
